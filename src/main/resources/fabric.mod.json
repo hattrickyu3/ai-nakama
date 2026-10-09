@@ -1,0 +1,21 @@
+{
+	"schemaVersion": 1,
+	"id": "ainakama",
+	"version": "${version}",
+	"name": "AI Nakama",
+	"description": "言葉で指示できるAIの仲間（村人）を追加するMod。AIは計画だけを立て、動きはプログラムが行う。",
+	"authors": ["hattr"],
+	"license": "MIT",
+	"icon": "assets/ainakama/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": ["dev.ainakama.AiNakama"],
+		"client": ["dev.ainakama.client.AiNakamaClient"]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
