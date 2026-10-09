@@ -30,8 +30,8 @@ public final class QuickCommands {
 	private static final Pattern SET_HOME = Pattern.compile("^(ここを拠点に(して)?|ここが拠点(だよ)?)[!！。]*$");
 	private static final Pattern INVENTORY = Pattern.compile("^(持ち物(は)?|何持ってる[?？]?|もちもの)[!！。?？]*$");
 	private static final Pattern STORE = Pattern.compile("^(チェストに)?(しまって|片付けて|かたづけて)[!！。]*$");
-	private static final Pattern COLLECT = Pattern.compile("^(.+?)を(\\d+)(個|本|つ|コ)?(集めて|あつめて|取ってきて|とってきて|掘って|切って)[!！。]*$");
-	private static final Pattern CRAFT = Pattern.compile("^(.+?)を(\\d+)?(個|本|つ|コ)?(作って|つくって|クラフトして)[!！。]*$");
+	private static final Pattern COLLECT = Pattern.compile("^(.+?)を(\\d{1,4})(個|本|つ|コ)?(集めて|あつめて|取ってきて|とってきて|掘って|切って)[!！。]*$");
+	private static final Pattern CRAFT = Pattern.compile("^(.+?)を(\\d{1,4})?(個|本|つ|コ)?(作って|つくって|クラフトして)[!！。]*$");
 	private static final Pattern BUILD = Pattern.compile("^(ここに|拠点に)?(.+?)を(建てて|たてて|作って|つくって)[!！。]*$");
 
 	private QuickCommands() {
@@ -69,7 +69,7 @@ public final class QuickCommands {
 		m = COLLECT.matcher(s);
 		if (m.matches()) {
 			var item = Items.resolve(m.group(1), itemExists);
-			if (item.isPresent()) {
+			if (item.isPresent() && Items.isCollectable(item.get())) {
 				int n = clamp(Integer.parseInt(m.group(2)));
 				return Optional.of(Match.plan(withSay("集めてくるね！", new Command.Collect(item.get(), n))));
 			}

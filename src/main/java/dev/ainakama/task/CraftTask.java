@@ -49,10 +49,17 @@ final class CraftTask implements Task {
 		}
 		wait = TICKS_PER_STEP;
 		nakama.swingArm();
-		if (!apply(nakama, steps.get(stepIndex))) {
-			// 計画の途中で持ち物が変わった（プレイヤーが取ったなど）ので立て直す
-			steps = null;
-			return RUNNING;
+		switch (apply(nakama, steps.get(stepIndex))) {
+			case CHANGED -> {
+				// 計画の途中で持ち物が変わった（プレイヤーが取ったなど）ので立て直す
+				steps = null;
+				return RUNNING;
+			}
+			case FULL -> {
+				return new Result.Failed("持ち物がいっぱいで、作ったものを足元に置いた（「しまって」と言ってね）");
+			}
+			case OK -> {
+			}
 		}
 		stepIndex++;
 		return stepIndex >= steps.size() ? DONE : RUNNING;
@@ -70,7 +77,7 @@ final class CraftTask implements Task {
 				String raw = e.getKey();
 				if (raw.equals(Items.ANY_LOG)) {
 					first.add(new Command.Collect("oak_log", e.getValue()));
-				} else if (raw.equals("cobblestone") || raw.equals("coal") || raw.equals("raw_iron") || raw.equals("sand") || raw.equals("dirt")) {
+				} else if (Items.isCollectable(raw)) {
 					first.add(new Command.Collect(raw, e.getValue()));
 				} else {
 					return new Result.Failed(Items.label(item) + "を作るのに" + Items.label(raw) + "が" + e.getValue() + "個足りない（集め方を知らない）");
@@ -84,22 +91,31 @@ final class CraftTask implements Task {
 		return steps.isEmpty() ? DONE : null;
 	}
 
-	private static boolean apply(NakamaEntity nakama, CraftPlanner.Step step) {
+	private enum Applied {
+		OK, CHANGED, FULL
+	}
+
+	private static Applied apply(NakamaEntity nakama, CraftPlanner.Step step) {
 		for (var e : step.consumed().entrySet()) {
 			if (Inv.count(nakama.getInventory(), e.getKey()) < e.getValue()) {
-				return false;
+				return Applied.CHANGED;
 			}
 		}
 		step.consumed().forEach((id, n) -> Inv.remove(nakama.getInventory(), id, n));
+		boolean full = false;
 		for (var e : step.produced().entrySet()) {
-			Inv.item(e.getKey()).ifPresent(it -> {
-				ItemStack rest = Inv.add(nakama.getInventory(), new ItemStack(it, e.getValue()));
-				if (!rest.isEmpty()) {
-					Block.popResource(nakama.level(), nakama.blockPosition(), rest);
-				}
-			});
+			var it = Inv.item(e.getKey());
+			if (it.isEmpty()) {
+				continue;
+			}
+			ItemStack rest = Inv.add(nakama.getInventory(), new ItemStack(it.get(), e.getValue()));
+			if (!rest.isEmpty()) {
+				// 入りきらない分はなくさずに足元に置く
+				Block.popResource(nakama.level(), nakama.blockPosition(), rest);
+				full = true;
+			}
 		}
-		return true;
+		return full ? Applied.FULL : Applied.OK;
 	}
 
 	private static boolean tableNearby(NakamaEntity nakama, ServerLevel level) {

@@ -3,6 +3,7 @@ package dev.ainakama.task;
 import dev.ainakama.core.Blueprint;
 import dev.ainakama.core.Command;
 import dev.ainakama.core.Items;
+import dev.ainakama.core.Place;
 import dev.ainakama.core.Recipes;
 import dev.ainakama.entity.NakamaEntity;
 import dev.ainakama.world.Inv;
@@ -13,6 +14,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
@@ -30,6 +32,7 @@ final class BuildTask implements Task {
 	private static final double REACH = 4.5;
 	private static final int TICKS_PER_BLOCK = 4;
 	private static final int STUCK_TICKS = 160;
+	private static final int BLOCKED_GIVE_UP_TICKS = 100;
 
 	private final Blueprint blueprint;
 	private final BlockPos anchor;
@@ -39,6 +42,7 @@ final class BuildTask implements Task {
 	private int wait;
 	private int placed;
 	private int skipped;
+	private int blockedTicks;
 
 	BuildTask(Blueprint blueprint, BlockPos anchor) {
 		this.blueprint = blueprint;
@@ -59,9 +63,8 @@ final class BuildTask implements Task {
 		while (index < blueprint.parts().size()) {
 			Blueprint.Part part = blueprint.parts().get(index);
 			BlockPos pos = origin.offset(part.dx(), part.dy(), part.dz());
-			BlockState there = level.getBlockState(pos);
-			if (!there.canBeReplaced()) {
-				// 何かがあるところは飛ばす（同じものが置いてあれば完成扱い）
+			if (!canPlaceAt(level.getBlockState(pos))) {
+				// 何かがあるところ・水や溶岩のところは飛ばす（同じものが置いてあれば完成扱い）
 				index++;
 				skipped++;
 				continue;
@@ -90,6 +93,16 @@ final class BuildTask implements Task {
 			nakama.getNavigation().moveTo(origin.getX() - 2, origin.getY(), origin.getZ() - 2, NakamaEntity.WALK_SPEED);
 			return RUNNING;
 		}
+		if (!level.getEntitiesOfClass(LivingEntity.class, new AABB(pos), e -> e != nakama && e.isAlive()).isEmpty()) {
+			// プレイヤーや動物がいる場所に置くと埋めてしまうので、どくまで待つ。長く待ってもだめなら飛ばす
+			if (++blockedTicks > BLOCKED_GIVE_UP_TICKS) {
+				blockedTicks = 0;
+				index++;
+				skipped++;
+			}
+			return RUNNING;
+		}
+		blockedTicks = 0;
 		int slot = Inv.findSlot(nakama.getInventory(), part.block());
 		if (slot < 0) {
 			// 途中で材料がなくなった：もう一度数え直す
@@ -103,7 +116,12 @@ final class BuildTask implements Task {
 		nakama.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, stack.copyWithCount(1));
 		nakama.getLookControl().setLookAt(Vec3.atCenterOf(pos));
 		BlockState state = Block.updateFromNeighbourShapes(blockItem.getBlock().defaultBlockState(), level, pos);
-		level.setBlock(pos, state, Block.UPDATE_ALL);
+		if (!level.setBlock(pos, state, Block.UPDATE_ALL)) {
+			// 置けなかった（保護されている場所など）ので、材料は減らさずに飛ばす
+			index++;
+			skipped++;
+			return RUNNING;
+		}
 		level.playSound(null, pos, state.getSoundType().getPlaceSound(), SoundSource.BLOCKS, 1.0F, 1.0F);
 		nakama.swingArm();
 		stack.shrink(1);
@@ -118,7 +136,7 @@ final class BuildTask implements Task {
 		Map<String, Integer> need = new java.util.LinkedHashMap<>();
 		for (int i = index; i < blueprint.parts().size(); i++) {
 			Blueprint.Part part = blueprint.parts().get(i);
-			if (level.getBlockState(origin.offset(part.dx(), part.dy(), part.dz())).canBeReplaced()) {
+			if (canPlaceAt(level.getBlockState(origin.offset(part.dx(), part.dy(), part.dz())))) {
 				need.merge(part.block(), 1, Integer::sum);
 			}
 		}
@@ -136,6 +154,16 @@ final class BuildTask implements Task {
 			first.add(new Command.Craft(concrete, deficit));
 		}
 		return first.isEmpty() ? null : new Result.Needs(first, blueprint.japaneseName() + "の材料が足りない");
+	}
+
+	/** 草や空気のところには置く。水・溶岩・ほかのブロックがあるところには置かない。 */
+	private static boolean canPlaceAt(BlockState there) {
+		return there.canBeReplaced() && there.getFluidState().isEmpty();
+	}
+
+	@Override
+	public Command pinned(Command original) {
+		return new Command.Build(blueprint.id(), new Place.Coords(anchor.getX(), anchor.getY(), anchor.getZ()));
 	}
 
 	@Override

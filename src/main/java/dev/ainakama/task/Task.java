@@ -33,6 +33,11 @@ public interface Task {
 	/** 状況の要約に出す、今の作業の説明。 */
 	String describe();
 
+	/** やり直すときに使う命令。場所を決めたタスクは、決まった座標に置き換えたものを返す。 */
+	default Command pinned(Command original) {
+		return original;
+	}
+
 	/** やめるときの後片付け（ブロックを壊す途中の表示を消すなど）。 */
 	default void cancel(NakamaEntity nakama, ServerLevel level) {
 	}

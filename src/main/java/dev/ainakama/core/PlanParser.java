@@ -110,6 +110,10 @@ public final class PlanParser {
 					return Optional.empty();
 				}
 				int count = clampCount(o, where, errors);
+				if (name.equals("collect") && !Items.isCollectable(item.get())) {
+					errors.add(where + ": " + item.get() + " は集められない（集められるのは原木・丸石・石炭・鉄の原石・土・砂・砂利・粘土。作るものは craft）");
+					return Optional.empty();
+				}
 				if (name.equals("craft") && !Recipes.canCraft(item.get())) {
 					errors.add(where + ": " + item.get() + " の作り方を知らない");
 					return Optional.empty();

@@ -28,9 +28,14 @@ public final class ModServices {
 		AiConfig cfg = AiConfig.loadOrCreate(dir.resolve("ainakama.json"), warnings);
 		Path logFile = FabricLoader.getInstance().getGameDir().resolve("logs").resolve("ainakama-usage.csv");
 		UsageLog usage = ai == null ? new UsageLog(logFile) : ai.usage();
+		// 上限が変わっていなければ今日の回数を引き継ぐ（読み直しで回数がリセットされないように）
+		CallBudget budget = ai != null && config != null
+			&& config.dailyCallLimit == cfg.dailyCallLimit && config.cooldownSeconds == cfg.cooldownSeconds
+			? ai.budget()
+			: new CallBudget(cfg.cooldownSeconds * 1000L, cfg.dailyCallLimit, ZoneId.systemDefault());
 		ai = new AiService(
 			new HttpLlmClient(cfg),
-			new CallBudget(cfg.cooldownSeconds * 1000L, cfg.dailyCallLimit, ZoneId.systemDefault()),
+			budget,
 			new PlanParser(Inv::itemExists),
 			usage,
 			cfg.model,

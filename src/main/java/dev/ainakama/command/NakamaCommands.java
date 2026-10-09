@@ -17,6 +17,7 @@ import net.minecraft.world.entity.EntitySpawnReason;
 
 /**
  * /nakama コマンド。
+ * spawn・home・reload はチートが有効（OP）のときだけ使える。
  * spawn [名前]：仲間を出す / home：近くの仲間の拠点をここにする / usage：今日のAIの使用量 / reload：設定の読み直し / list：仲間の一覧
  */
 public final class NakamaCommands {
@@ -30,12 +31,13 @@ public final class NakamaCommands {
 	public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
 		dispatcher.register(Commands.literal("nakama")
 			.then(Commands.literal("spawn")
+				.requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
 				.executes(ctx -> spawn(ctx, NakamaEntity.DEFAULT_NAME))
 				.then(Commands.argument("name", StringArgumentType.greedyString())
 					.executes(ctx -> spawn(ctx, StringArgumentType.getString(ctx, "name")))))
-			.then(Commands.literal("home").executes(NakamaCommands::home))
+			.then(Commands.literal("home").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)).executes(NakamaCommands::home))
 			.then(Commands.literal("usage").executes(NakamaCommands::usage))
-			.then(Commands.literal("reload").executes(NakamaCommands::reload))
+			.then(Commands.literal("reload").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)).executes(NakamaCommands::reload))
 			.then(Commands.literal("list").executes(NakamaCommands::list)));
 	}
 

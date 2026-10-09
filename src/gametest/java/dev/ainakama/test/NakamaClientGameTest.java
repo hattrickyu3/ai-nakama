@@ -58,6 +58,19 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 				n -> n.isIdle() && hutBlocks(n) >= 60, LONG * 2);
 			int hut = server.computeOnServer(s -> hutBlocks(nakama(s)));
 			LOG.info("[ainakama-test] 小屋のブロック数: {}", hut);
+			int wall = server.computeOnServer(s -> {
+				int n = 0;
+				for (int i = 0; i < 4; i++) {
+					if (player(s).level().getBlockState(base.offset(-10, 0, i)).is(Blocks.OAK_LOG)) {
+						n++;
+					}
+				}
+				return n;
+			});
+			if (wall != 4) {
+				throw new AssertionError("プレイヤーの原木の壁が切られた（残り " + wall + "/4）");
+			}
+			LOG.info("[ainakama-test] OK: プレイヤーの原木の壁は残っている");
 			context.takeScreenshot("ainakama-02-hut");
 
 			// 決まった言い方（AIを使わない）
@@ -98,12 +111,17 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 		ServerLevel level = player.level();
 		base = player.blockPosition();
 
-		// 木：拠点から12〜16マス離れたところに、高さ3の幹を12本（36本分）
+		// 木：拠点から12〜16マス離れたところに、高さ3の幹＋葉っぱを12本（原木36本分）
 		for (int i = 0; i < 12; i++) {
 			BlockPos trunk = base.offset(12 + (i % 3) * 2, 0, -6 + (i / 3) * 3);
 			for (int h = 0; h < 3; h++) {
 				level.setBlockAndUpdate(trunk.above(h), Blocks.OAK_LOG.defaultBlockState());
 			}
+			level.setBlockAndUpdate(trunk.above(3), Blocks.OAK_LEAVES.defaultBlockState());
+		}
+		// プレイヤーが原木で作った壁（葉っぱなし）。木より近いが、切られてはいけない
+		for (int i = 0; i < 4; i++) {
+			level.setBlockAndUpdate(base.offset(-10, 0, i), Blocks.OAK_LOG.defaultBlockState());
 		}
 		// 石：拠点の反対側の地面に5個
 		for (int i = 0; i < 5; i++) {

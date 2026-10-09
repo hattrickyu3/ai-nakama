@@ -34,7 +34,7 @@ final class Walker {
 		} else if (++sinceProgress > stuckTicks) {
 			return false;
 		}
-		if (--repathCooldown <= 0 || nakama.getNavigation().isDone()) {
+		if (--repathCooldown <= 0) {
 			repathCooldown = repathTicks;
 			nakama.getNavigation().moveTo(target.getX() + 0.5, target.getY(), target.getZ() + 0.5, reachRange, NakamaEntity.WALK_SPEED);
 		}

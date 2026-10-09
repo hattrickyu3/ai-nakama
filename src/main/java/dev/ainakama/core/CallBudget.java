@@ -49,6 +49,11 @@ public final class CallBudget {
 		return Decision.OK;
 	}
 
+	/** 聞き直しなど、制限の判定はせずに回数だけ数える呼び出し。 */
+	public synchronized void recordExtra() {
+		usedToday++;
+	}
+
 	public synchronized int usedToday() {
 		return usedToday;
 	}

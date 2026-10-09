@@ -1,6 +1,7 @@
 package dev.ainakama.entity;
 
 import com.mojang.serialization.Codec;
+import dev.ainakama.AiNakama;
 import dev.ainakama.ModServices;
 import dev.ainakama.ai.AiService;
 import dev.ainakama.core.CallBudget;
@@ -14,8 +15,6 @@ import dev.ainakama.core.Status;
 import dev.ainakama.task.TaskRunner;
 import dev.ainakama.world.Inv;
 import dev.ainakama.world.StatusCollector;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import net.minecraft.ChatFormatting;
@@ -29,6 +28,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
@@ -54,24 +54,29 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 	public static final double WALK_SPEED = 0.6;
 	private static final int INVENTORY_SIZE = 27;
 	private static final int REGEN_INTERVAL = 80;
-	private static final int SAME_FAILURE_LIMIT = 3;
+	/** 1回の話しかけのあと、失敗してAIに立て直しを頼める回数。これを超えたらプレイヤーに任せる。 */
+	private static final int MAX_AUTO_REPLANS = 2;
 	private static final String THINKING_SUFFIX = "（考え中…）";
 
 	private final SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE);
 	private final TaskRunner runner = new TaskRunner();
-	private final Map<String, Integer> failureCounts = new HashMap<>();
 	private Memory memory = Memory.empty();
 	private @Nullable BlockPos home;
 	private @Nullable UUID lastSpeaker;
 	private String baseName = DEFAULT_NAME;
 	private String personality = "";
 	private boolean thinking;
+	/** 新しい指示のたびに増える番号。AIの返事が届いたとき、もっと新しい指示が出ていれば古い返事は捨てる。 */
+	private int generation;
+	private int autoReplans;
 
 	public NakamaEntity(EntityType<? extends PathfinderMob> type, Level level) {
 		super(type, level);
 		this.setPersistenceRequired();
 		this.setPermanentlyInvulnerable(true);
 		this.setCanPickUpLoot(false);
+		// 手に持たせているのは持ち物の見た目用の写しなので、落とさない
+		this.setDropChance(EquipmentSlot.MAINHAND, 0.0F);
 	}
 
 	public static AttributeSupplier.Builder createAttributes() {
@@ -119,11 +124,12 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 			return;
 		}
 		this.lastSpeaker = player.getUUID();
-		this.failureCounts.clear();
+		this.autoReplans = 0;
 		this.getLookControl().setLookAt(player);
 
 		var quick = QuickCommands.match(text, Inv::itemExists);
 		if (quick.isPresent()) {
+			generation++;
 			quick.get().special().ifPresent(s -> handleSpecial(s, player));
 			quick.get().plan().ifPresent(p -> applyPlan(p, text, level));
 			return;
@@ -134,6 +140,7 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 		}
 		Status status = StatusCollector.collect(this, level, runner.describeCurrent());
 		String user = PromptBuilder.userForMessage(baseName, status, memory, text);
+		generation++;
 		askAi("message", user, text, level);
 	}
 
@@ -165,6 +172,7 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 		thinking = true;
 		refreshName();
 		String system = PromptBuilder.system(baseName, personality.isBlank() ? ModServices.config().defaultPersonality : personality);
+		int askedAt = generation;
 		ai.ask(this.getUUID(), purpose, system, user).whenComplete((outcome, err) ->
 			level.getServer().execute(() -> {
 				thinking = false;
@@ -172,8 +180,13 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 					return;
 				}
 				refreshName();
+				if (askedAt != generation) {
+					// 考えている間に「止まって」など新しい指示が出たので、古い返事は使わない
+					return;
+				}
 				if (err != null) {
-					say("うまく考えられなかった…（" + err.getMessage() + "）");
+					AiNakama.LOGGER.warn("AIの返事を受け取れませんでした", err);
+					say("うまく考えられなかった…。");
 					return;
 				}
 				handleOutcome(outcome, playerText, level);
@@ -218,12 +231,11 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 		if (!(this.level() instanceof ServerLevel level)) {
 			return;
 		}
-		int n = failureCounts.merge(command.describe() + "|" + reason, 1, Integer::sum);
-		if (n >= SAME_FAILURE_LIMIT || thinking) {
-			say("何度やってもうまくいかない…。" + reason);
-			failureCounts.clear();
+		if (autoReplans >= MAX_AUTO_REPLANS || thinking) {
+			say("うまくいかない…。" + reason + "。どうしたらいいか教えて？");
 			return;
 		}
+		autoReplans++;
 		say(reason + "…。どうするか考えるね。");
 		Status status = StatusCollector.collect(this, level, "なし");
 		askAi("failure", PromptBuilder.userForFailure(baseName, status, memory, command.describe(), reason), null, level);

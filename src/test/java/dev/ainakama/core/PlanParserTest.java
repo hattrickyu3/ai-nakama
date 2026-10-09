@@ -64,6 +64,19 @@ class PlanParserTest {
 	}
 
 	@Test
+	void collectOnlyAllowsNaturalResources() {
+		// 板材を「集める」と、プレイヤーの家の壁を壊してしまうので受け付けない
+		var planks = parser.parse("{\"say\":\"\",\"plan\":[{\"do\":\"collect\",\"item\":\"oak_planks\",\"count\":10}]}");
+		assertFalse(planks.ok());
+		assertTrue(planks.plan().commands().isEmpty());
+
+		// "stone" は掘ると丸石になるので、丸石を集める意味に読みかえる
+		var stone = parser.parse("{\"say\":\"\",\"plan\":[{\"do\":\"collect\",\"item\":\"stone\",\"count\":5}]}");
+		assertTrue(stone.ok(), () -> stone.errors().toString());
+		assertEquals(new Command.Collect("cobblestone", 5), stone.plan().commands().get(0));
+	}
+
+	@Test
 	void rejectsUncraftableItem() {
 		var r = parser.parse("{\"say\":\"\",\"plan\":[{\"do\":\"craft\",\"item\":\"oak_log\",\"count\":1}]}");
 		assertFalse(r.ok());

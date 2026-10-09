@@ -1,6 +1,7 @@
 package dev.ainakama.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.ZoneId;
@@ -29,6 +30,19 @@ class SmallPartsTest {
 	void freeTextGoesToAi() {
 		assertTrue(QuickCommands.match("冬に備えて何かしておいて", KNOWN::contains).isEmpty());
 		assertTrue(QuickCommands.match("ダイヤを10個集めて", KNOWN::contains).isEmpty());
+		// 板材は集めるものではない（家を壊さないため）。とても大きな数も受け付けない
+		assertTrue(QuickCommands.match("木材を10個集めて", KNOWN::contains).isEmpty());
+		assertTrue(QuickCommands.match("木を99999999999本集めて", KNOWN::contains).isEmpty());
+	}
+
+	@Test
+	void logsAndCollectables() {
+		assertTrue(Items.isLog("birch_log"));
+		assertTrue(Items.isLog("crimson_stem"));
+		assertFalse(Items.isLog("mushroom_stem"));
+		assertTrue(Items.isCollectable("cobblestone"));
+		assertFalse(Items.isCollectable("oak_planks"));
+		assertFalse(Items.isCollectable("chest"));
 	}
 
 	@Test

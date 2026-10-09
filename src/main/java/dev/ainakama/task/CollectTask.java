@@ -105,15 +105,20 @@ final class CollectTask implements Task {
 		level.destroyBlock(target, false, nakama);
 		resetBreaking(nakama, level);
 		target = null;
+		boolean full = false;
 		for (ItemStack drop : drops) {
 			if (Items.matches(group, Inv.idOf(drop.getItem()))) {
 				gathered += drop.getCount();
 			}
 			ItemStack rest = Inv.add(nakama.getInventory(), drop);
 			if (!rest.isEmpty()) {
+				// 入りきらない分はなくさずに足元に置く
 				Block.popResource(level, nakama.blockPosition(), rest);
-				return new Result.Failed("持ち物がいっぱい（「チェストにしまって」と言ってね）");
+				full = true;
 			}
+		}
+		if (full) {
+			return new Result.Failed("持ち物がいっぱい（「しまって」と言ってね）");
 		}
 		return gathered >= count ? DONE : RUNNING;
 	}
@@ -130,6 +135,7 @@ final class CollectTask implements Task {
 		BlockPos home = nakama.home();
 		BlockPos best = null;
 		double bestDist = Double.MAX_VALUE;
+		boolean logs = Items.isLog(item);
 		BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
 		for (int dy = -SEARCH_HEIGHT; dy <= SEARCH_HEIGHT; dy++) {
 			for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx++) {
@@ -141,6 +147,10 @@ final class CollectTask implements Task {
 						continue;
 					}
 					if (home != null && home.distSqr(p) < HOME_PROTECT_RADIUS * HOME_PROTECT_RADIUS) {
+						continue;
+					}
+					if (logs && !Sources.isNaturalLog(level, p)) {
+						// 葉っぱのない原木はプレイヤーが置いたものかもしれないので切らない
 						continue;
 					}
 					best = p.immutable();

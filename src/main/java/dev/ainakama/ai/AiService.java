@@ -8,12 +8,16 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.LongSupplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * AIに計画を聞く窓口。呼び出し回数の制限、返事の確認、間違っていたときの聞き直し（1回だけ）をまとめて行う。
  * Minecraft には依存しないので、接続先を差し替えてテストできる。
  */
 public final class AiService {
+	private static final Logger LOGGER = LoggerFactory.getLogger("ainakama");
+
 	/** AIに聞いた結果。 */
 	public sealed interface Outcome {
 		/** 計画が得られた。errors が空でなければ、聞き直しても直らなかった間違いが残っている。 */
@@ -64,6 +68,7 @@ public final class AiService {
 			}
 			// 間違いを添えて1回だけ聞き直す。直らなければ、読めた部分だけを使う
 			String retryUser = PromptBuilder.userForRetry(user, parsed.raw(), parsed.result().errors());
+			budget.recordExtra();
 			return call(purpose + "-retry", system, retryUser).thenApply(second -> {
 				if (second instanceof Attempt.Parsed p2 && (p2.result().ok() || !p2.result().plan().commands().isEmpty())) {
 					return new Outcome.Success(p2.result().plan(), p2.result().errors());
@@ -91,6 +96,10 @@ public final class AiService {
 				}
 				PlanParser.Result result = parser.parse(res.text());
 				usage.record(purpose, model, res, result.ok() ? "ok" : "invalid");
+				if (!result.ok()) {
+					// モデル選びやプロンプト調整のために、どこが間違っていたかを残す
+					LOGGER.info("AIの返事に間違い（{}）: {} / 返事: {}", purpose, result.errors(), res.text().replace('\n', ' '));
+				}
 				return new Attempt.Parsed(res.text(), result);
 			});
 	}
@@ -103,7 +112,9 @@ public final class AiService {
 		if (name.contains("Timeout")) {
 			return "AIの返事が時間内に来なかった";
 		}
-		return "AIとのやりとりでエラー: " + (t.getMessage() == null ? name : t.getMessage());
+		// 接続先のエラー本文にはAPIキーの一部などが含まれることがあるので、チャットには出さずログにだけ残す
+		LOGGER.warn("AIとのやりとりでエラー: {}", t.toString());
+		return "AIとのやりとりでエラーが起きた（詳しくはログ）";
 	}
 
 	public CallBudget budget() {

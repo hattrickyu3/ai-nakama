@@ -4,8 +4,11 @@ import dev.ainakama.core.Items;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
@@ -39,6 +42,25 @@ public final class Sources {
 		}
 		Set<String> ids = BLOCKS.getOrDefault(item, Set.of(item));
 		return s -> ids.contains(BuiltInRegistries.BLOCK.getKey(s.getBlock()).getPath());
+	}
+
+	private static final int LEAVES_SEARCH_RADIUS = 2;
+	private static final int LEAVES_SEARCH_UP = 7;
+
+	/**
+	 * 自然に生えた木の原木か。近く（主に上のほう）に、自然にできた葉っぱ（PERSISTENT=false）があれば木とみなす。
+	 * プレイヤーが原木で作った家は、自然の葉っぱとくっついていないので切らずにすむ。
+	 */
+	public static boolean isNaturalLog(Level level, BlockPos pos) {
+		for (BlockPos p : BlockPos.betweenClosed(
+			pos.offset(-LEAVES_SEARCH_RADIUS, -1, -LEAVES_SEARCH_RADIUS),
+			pos.offset(LEAVES_SEARCH_RADIUS, LEAVES_SEARCH_UP, LEAVES_SEARCH_RADIUS))) {
+			BlockState s = level.getBlockState(p);
+			if (s.is(BlockTags.LEAVES) && s.hasProperty(LeavesBlock.PERSISTENT) && !s.getValue(LeavesBlock.PERSISTENT)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** 掘るのに必要な道具（作るべきもの）。いらなければ null。 */

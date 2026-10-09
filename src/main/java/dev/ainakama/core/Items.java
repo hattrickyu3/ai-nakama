@@ -14,6 +14,13 @@ public final class Items {
 	public static final String ANY_LOG = "#log";
 	public static final String ANY_PLANKS = "#planks";
 
+	/**
+	 * collect で集めてよいもの（原木のほか）。自然にあるブロックから取れるものだけにして、
+	 * 板材やガラスなど「プレイヤーが置いたブロックを壊さないと手に入らないもの」は集めさせない。
+	 */
+	public static final java.util.Set<String> COLLECTABLE = java.util.Set.of(
+		"cobblestone", "coal", "raw_iron", "dirt", "sand", "gravel", "clay_ball");
+
 	private static final Map<String, String> ALIASES = new LinkedHashMap<>();
 	private static final Map<String, String> JAPANESE = new LinkedHashMap<>();
 
@@ -24,7 +31,7 @@ public final class Items {
 		alias("crafting_table", "作業台", "workbench");
 		alias("chest", "チェスト", "箱");
 		alias("furnace", "かまど");
-		alias("cobblestone", "丸石", "石", "stone_block", "rock");
+		alias("cobblestone", "丸石", "石", "stone", "stone_block", "rock");
 		alias("coal", "石炭");
 		alias("torch", "松明", "たいまつ", "torches");
 		alias("wooden_pickaxe", "木のツルハシ");
@@ -116,7 +123,12 @@ public final class Items {
 
 	public static boolean isLog(String id) {
 		String s = id.replace("stripped_", "");
-		return s.endsWith("_log") || s.endsWith("_stem");
+		return s.endsWith("_log") || s.equals("crimson_stem") || s.equals("warped_stem");
+	}
+
+	/** collect で集めてよいか。原木はどの種類でもよい。 */
+	public static boolean isCollectable(String id) {
+		return isLog(id) || COLLECTABLE.contains(id);
 	}
 
 	public static boolean isPlanks(String id) {

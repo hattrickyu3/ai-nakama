@@ -16,7 +16,14 @@ public final class TaskRunner {
 	/** 差し込みの深さの上限。かまど ← 丸石 ← 木のツルハシ ← 原木、で3段。 */
 	public static final int MAX_DEPTH = 3;
 
-	private record Entry(Command command, int depth) {
+	/** 同じ命令を「先にやること」のあとでやり直す回数の上限。材料集めが空回りし続けないようにする。 */
+	public static final int MAX_RETRIES = 2;
+
+	/**
+	 * @param depth   差し込みの深さ
+	 * @param retries この命令をやり直した回数
+	 */
+	private record Entry(Command command, int depth, int retries) {
 	}
 
 	/** 失敗や完了を受け取る側（仲間）。 */
@@ -35,7 +42,7 @@ public final class TaskRunner {
 	public void replace(List<Command> commands, NakamaEntity nakama, ServerLevel level) {
 		clear(nakama, level);
 		for (Command c : commands) {
-			queue.addLast(new Entry(c, 0));
+			queue.addLast(new Entry(c, 0, 0));
 		}
 	}
 
@@ -87,17 +94,19 @@ public final class TaskRunner {
 			}
 			case Task.Result.Needs n -> {
 				Entry entry = currentEntry;
+				// 「ここ」「プレイヤーのそば」は最初に決まった座標に固定する（やり直しで別の場所に建てないため）
+				Command pinned = current.pinned(entry.command());
 				current.cancel(nakama, level);
 				finishCurrent();
-				if (entry.depth() >= MAX_DEPTH) {
+				if (entry.depth() >= MAX_DEPTH || entry.retries() >= MAX_RETRIES) {
 					fail(entry, n.why(), nakama, level, listener);
 					return;
 				}
 				// 元の命令をやり直すために先頭へ戻し、その前に「先にやること」を並べる
-				queue.addFirst(entry);
+				queue.addFirst(new Entry(pinned, entry.depth(), entry.retries() + 1));
 				List<Command> first = n.first();
 				for (int i = first.size() - 1; i >= 0; i--) {
-					queue.addFirst(new Entry(first.get(i), entry.depth() + 1));
+					queue.addFirst(new Entry(first.get(i), entry.depth() + 1, 0));
 				}
 			}
 			case Task.Result.Failed f -> fail(currentEntry, f.reason(), nakama, level, listener);
