@@ -1,6 +1,11 @@
 package dev.ainakama;
 
+import dev.ainakama.command.ChatRouter;
+import dev.ainakama.command.NakamaCommands;
+import dev.ainakama.entity.ModEntities;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,7 +16,11 @@ public class AiNakama implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
-		LOGGER.info("AI Nakama loaded");
+		ModEntities.register();
+		ModServices.reload();
+		CommandRegistrationCallback.EVENT.register((dispatcher, context, selection) -> NakamaCommands.register(dispatcher));
+		ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> ChatRouter.onChat(sender, message.signedContent()));
+		LOGGER.info("AI Nakama loaded ({})", ModServices.ai().describeClient());
 	}
 
 	public static Identifier id(String path) {

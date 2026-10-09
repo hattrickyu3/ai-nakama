@@ -1,0 +1,120 @@
+package dev.ainakama.task;
+
+import dev.ainakama.core.Command;
+import dev.ainakama.core.CraftPlanner;
+import dev.ainakama.core.Items;
+import dev.ainakama.entity.NakamaEntity;
+import dev.ainakama.world.Inv;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+
+/**
+ * クラフトする。途中の材料（板材・棒・作業台）は {@link CraftPlanner} が決めた順に自動で作る。
+ * 素材そのもの（原木・丸石など）が足りなければ「先に集めて」と返す。
+ */
+final class CraftTask implements Task {
+	private static final int TABLE_SEARCH_RADIUS = 6;
+	private static final int TICKS_PER_STEP = 10;
+
+	private final String item;
+	private final int count;
+	private List<CraftPlanner.Step> steps;
+	private int stepIndex;
+	private int wait;
+
+	CraftTask(String item, int count) {
+		this.item = item;
+		this.count = count;
+	}
+
+	@Override
+	public Result tick(NakamaEntity nakama, ServerLevel level) {
+		if (steps == null) {
+			Result planned = plan(nakama, level);
+			if (planned != null) {
+				return planned;
+			}
+		}
+		if (stepIndex >= steps.size()) {
+			return DONE;
+		}
+		if (--wait > 0) {
+			return RUNNING;
+		}
+		wait = TICKS_PER_STEP;
+		nakama.swingArm();
+		if (!apply(nakama, steps.get(stepIndex))) {
+			// 計画の途中で持ち物が変わった（プレイヤーが取ったなど）ので立て直す
+			steps = null;
+			return RUNNING;
+		}
+		stepIndex++;
+		return stepIndex >= steps.size() ? DONE : RUNNING;
+	}
+
+	/** 手順を決める。すぐに結果を返すべきとき（足りない・作れない）はその結果、続けられるなら null。 */
+	private Result plan(NakamaEntity nakama, ServerLevel level) {
+		Map<String, Integer> inv = Inv.counts(nakama.getInventory());
+		String key = Items.groupOf(item);
+		int want = Items.count(inv, key) + count;
+		CraftPlanner.Result result = CraftPlanner.plan(inv, item, want, tableNearby(nakama, level));
+		if (!result.complete()) {
+			List<Command> first = new ArrayList<>();
+			for (var e : result.missing().entrySet()) {
+				String raw = e.getKey();
+				if (raw.equals(Items.ANY_LOG)) {
+					first.add(new Command.Collect("oak_log", e.getValue()));
+				} else if (raw.equals("cobblestone") || raw.equals("coal") || raw.equals("raw_iron") || raw.equals("sand") || raw.equals("dirt")) {
+					first.add(new Command.Collect(raw, e.getValue()));
+				} else {
+					return new Result.Failed(Items.label(item) + "を作るのに" + Items.label(raw) + "が" + e.getValue() + "個足りない（集め方を知らない）");
+				}
+			}
+			return new Result.Needs(first, Items.label(item) + "の材料が足りない");
+		}
+		steps = result.steps();
+		stepIndex = 0;
+		wait = TICKS_PER_STEP;
+		return steps.isEmpty() ? DONE : null;
+	}
+
+	private static boolean apply(NakamaEntity nakama, CraftPlanner.Step step) {
+		for (var e : step.consumed().entrySet()) {
+			if (Inv.count(nakama.getInventory(), e.getKey()) < e.getValue()) {
+				return false;
+			}
+		}
+		step.consumed().forEach((id, n) -> Inv.remove(nakama.getInventory(), id, n));
+		for (var e : step.produced().entrySet()) {
+			Inv.item(e.getKey()).ifPresent(it -> {
+				ItemStack rest = Inv.add(nakama.getInventory(), new ItemStack(it, e.getValue()));
+				if (!rest.isEmpty()) {
+					Block.popResource(nakama.level(), nakama.blockPosition(), rest);
+				}
+			});
+		}
+		return true;
+	}
+
+	private static boolean tableNearby(NakamaEntity nakama, ServerLevel level) {
+		BlockPos origin = nakama.blockPosition();
+		for (BlockPos p : BlockPos.betweenClosed(origin.offset(-TABLE_SEARCH_RADIUS, -2, -TABLE_SEARCH_RADIUS),
+			origin.offset(TABLE_SEARCH_RADIUS, 2, TABLE_SEARCH_RADIUS))) {
+			if (level.getBlockState(p).is(Blocks.CRAFTING_TABLE)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	@Override
+	public String describe() {
+		return Items.label(item) + "を" + count + "個作る";
+	}
+}

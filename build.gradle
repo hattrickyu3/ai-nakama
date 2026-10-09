@@ -48,6 +48,17 @@ test {
 	}
 }
 
+// ゲームを実際に起動して確かめるテスト（src/gametest）。
+// サーバー版のゲームテストは利用規約（EULA）への同意が要るので使わず、クライアント版だけを使う。
+fabricApi {
+	configureTests {
+		createSourceSet = true
+		modId = "ainakama-test"
+		enableGameTests = false
+		enableClientGameTests = true
+	}
+}
+
 processResources {
 	def version = project.version
 	inputs.property "version", version

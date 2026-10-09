@@ -1,9 +1,84 @@
-# Example Mod
+# AI Nakama（AI仲間Mod）
 
-## Setup
+マイクラ Java版 26.3（Fabric）に、言葉で指示できる村人の仲間を追加するModです。
+AIは「何をどの順でやるか」の計画だけを立て、歩く・掘る・クラフト・建築はプログラムが行います。
+AIを呼ぶのは話しかけられたときと、プログラムで直せない失敗をしたときだけなので、AIの利用料を低く抑えられます。
 
-For setup instructions, please see the [Fabric Documentation page](https://docs.fabricmc.net/develop/getting-started/creating-a-project#setting-up) related to the IDE that you are using.
+## 必要なもの
 
-## License
+- Minecraft Java版 26.3
+- Fabric Loader 0.19.5 以上、Fabric API
+- Ollama（PCで動く無料のAI）と、モデル `qwen3.5:4b`
+  - Claude などのAPIを使う場合は Ollama は不要（下の「設定」を参照）
 
-This template is available under the CC0 license. Feel free to learn from it and incorporate it in your own projects.
+## 遊び方
+
+| やりたいこと | 方法 |
+|---|---|
+| 仲間を出す | `/nakama spawn` または `/nakama spawn 名前` |
+| 話しかける | チャットで `ミナ、小屋を建てて` か `@ミナ 小屋を建てて`。`@みんな` で近くの全員 |
+| 拠点を決める | `ミナ、ここを拠点にして` または `/nakama home` |
+| 今の様子を見る | 素手で右クリック |
+| AIの使用量を見る | `/nakama usage` |
+| 設定の読み直し | `/nakama reload` |
+
+### AIを使わずにすぐ動く言い方
+
+`ついてきて` / `止まって` / `帰って` / `ここを拠点にして` / `持ち物は？` / `しまって` /
+`木を10本集めて` / `松明を8個作って` / `小屋を建てて` / `拠点に柵を作って`
+
+これ以外の言い方は、AIが意味を考えて計画にします（例：「夜になる前に明かりを用意しておいて」）。
+
+### 仲間ができること
+
+| 命令 | 内容 |
+|---|---|
+| follow / stop / move_to | ついていく・止まる・移動する |
+| collect | 原木・石（丸石）・石炭・鉄・土・砂などを集める。道具が要れば先に作る |
+| craft | 板材・棒・作業台・チェスト・木と石の道具・かまど・松明・柵・ドア・パン |
+| build | 小屋（5×5）、柵（7×7）。材料が足りなければ自分で集めてクラフトする |
+| store | 道具以外の持ち物を近くのチェストにしまう |
+| say / remember | 話す・覚える |
+
+まだできないこと：畑仕事、戦うこと、チェストから取り出すこと。
+
+### 決まりごと
+
+- 仲間はダメージを受けません（`/kill` を除く）
+- 拠点のまわり8マスのブロックは掘りません。丸石は自然の石からだけ取ります（建物を壊さないため）
+- 1つのワールドに出せる仲間は5人まで
+
+## 設定（`config/ainakama.json`）
+
+初めて起動したときに作られます。
+
+| 項目 | 初期値 | 内容 |
+|---|---|---|
+| provider | `ollama` | `ollama` / `anthropic` / `openai`（OpenAI互換のサービス） |
+| baseUrl | `http://localhost:11434` | 接続先のURL |
+| model | `qwen3.5:4b` | 使うモデル |
+| apiKey | 空 | APIキー。環境変数 `AINAKAMA_API_KEY` でもよい（そちらが優先） |
+| dailyCallLimit | 300 | 1日にAIを呼べる回数（全員の合計） |
+| cooldownSeconds | 5 | 同じ仲間がAIを呼ぶ間隔 |
+| defaultPersonality | 明るくて元気… | 仲間の性格 |
+
+APIキーはModの中には入っていません。配るときもキーを入れないでください。
+
+AIを呼ぶたびに `logs/ainakama-usage.csv` に送った量・返ってきた量・時間を記録します。
+
+## 開発
+
+```
+./gradlew build                       # ビルドと単体テスト
+./gradlew runClient                   # 開発用のマイクラを起動
+./gradlew runClientGameTest           # ゲームを起動して、集める・作る・建てる・会話を自動で確かめる
+./gradlew test -Dainakama.live=true --tests '*LiveModelEval*'   # 本物のAIに12個の依頼を送って返事を確かめる
+```
+
+- `core/`：Minecraft に依存しない部分（計画の読み取り、クラフトの手順、設計図、決まった言い方、文章づくり）
+- `ai/`：AIの接続先、呼び出し回数の制限、使用量の記録
+- `entity/` `task/` `world/` `command/`：ゲームの中の部分
+
+## ライセンス
+
+未定（配るときに決める）。

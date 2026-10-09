@@ -5,7 +5,7 @@
 	"name": "AI Nakama",
 	"description": "言葉で指示できるAIの仲間（村人）を追加するMod。AIは計画だけを立て、動きはプログラムが行う。",
 	"authors": ["hattr"],
-	"license": "MIT",
+	"license": "All-Rights-Reserved",
 	"icon": "assets/ainakama/icon.png",
 	"environment": "*",
 	"entrypoints": {
