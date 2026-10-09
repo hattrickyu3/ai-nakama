@@ -36,6 +36,16 @@ dependencies {
 
 test {
 	useJUnitPlatform()
+	// LiveModelEval 用（-Dainakama.live=true -Dainakama.model=...）
+	["ainakama.live", "ainakama.model"].each { key ->
+		def value = providers.systemProperty(key).getOrNull()
+		if (value != null) {
+			systemProperty key, value
+		}
+	}
+	testLogging {
+		showStandardStreams = providers.systemProperty("ainakama.live").getOrNull() == "true"
+	}
 }
 
 processResources {
