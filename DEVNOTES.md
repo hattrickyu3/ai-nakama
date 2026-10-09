@@ -19,3 +19,15 @@
 - core: MCに依存しない純粋なロジック（JUnitでテスト）
 - ai: LLMクライアント（Ollama / Anthropic / OpenAI互換）、設定、使用量ログ、呼び出し回数の制限
 - entity / task / world / command: MCに依存する部分
+
+## 状況（2026-10-10 朝）
+- 単体テスト 32件すべて成功（`./gradlew build`）
+- ゲーム内テスト（`./gradlew runClientGameTest`）すべて成功：原木4本 166tick、ツルハシ 60tick、丸石3個 124tick、小屋71ブロック 約990tick、プレイヤーの原木の壁は切らない、「ついてきて」、AI経由の自由な指示
+- 本物のAIでの評価（LiveModelEval）：qwen3.5:4b で12/12、1回あたり入力約600・出力約70トークン、約1秒
+- コードレビュー（code-reviewer エージェント）の指摘は HIGH/MEDIUM をすべて修正済み
+
+## 次にやること（候補）
+- 普段のランチャーで遊べるように、Fabric を入れて jar を mods に置く手順を整える
+- 小さいモデルの返事の日本語を良くする（system に例文を足す、gemma4:e4b と比べる）
+- うまくいった計画の使い回し、畑仕事・見張り・取り出し
+- 1時間遊んで、呼び出し回数と量を測る
