@@ -73,7 +73,10 @@ public final class BuildRecorder {
 		List<Added> added = new ArrayList<>();
 		for (BlockPos p : region(snap.center())) {
 			BlockState now = snap.level().getBlockState(p);
-			if (now.isAir() || now.equals(snap.before().get(p.asLong())) || !isBuilt(now)) {
+			BlockState was = snap.before().get(p.asLong());
+			// 小麦が育つ・畑が乾く・扉が開くのように、同じブロックの状態が変わっただけのものは、建てたものに数えない
+			boolean sameBlock = was != null && was.is(now.getBlock());
+			if (now.isAir() || sameBlock || !isBuilt(now)) {
 				continue;
 			}
 			added.add(new Added(p.immutable(), now));
