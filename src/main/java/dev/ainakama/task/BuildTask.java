@@ -1,5 +1,6 @@
 package dev.ainakama.task;
 
+import dev.ainakama.AiNakama;
 import dev.ainakama.core.Blueprint;
 import dev.ainakama.core.Command;
 import dev.ainakama.core.Items;
@@ -30,12 +31,16 @@ import net.minecraft.world.phys.Vec3;
  */
 final class BuildTask implements Task {
 	private static final double REACH = 4.5;
+	private static final double ARRIVE_DISTANCE = 8;
 	private static final int TICKS_PER_BLOCK = 4;
 	private static final int STUCK_TICKS = 160;
 	private static final int BLOCKED_GIVE_UP_TICKS = 100;
 	/** 足元を埋める深さの上限。これより深い穴や崖は埋めない。 */
 	private static final int MAX_FILL_DEPTH = 3;
 	private static final int FILLER_BATCH = 16;
+	/** 自分が邪魔なとき、よけるために歩く時間と、やり直す回数。 */
+	private static final int EVADE_TICKS = 15;
+	private static final int MAX_EVADE_TRIES = 5;
 
 	private enum Stage {
 		CLEAR, FOUNDATION, PLACE
@@ -56,6 +61,8 @@ final class BuildTask implements Task {
 	private int placed;
 	private int skipped;
 	private int blockedTicks;
+	private int evadeTicks;
+	private int evadeTries;
 
 	/** @param exact anchor が建物の基準点そのものか（やり直しのとき）。false なら anchor のまわりで場所を選ぶ */
 	BuildTask(Blueprint blueprint, BlockPos anchor, boolean exact) {
@@ -67,6 +74,11 @@ final class BuildTask implements Task {
 	@Override
 	public Result tick(NakamaEntity nakama, ServerLevel level) {
 		if (origin == null) {
+			// まず建てる場所まで行く。材料が足りないとき、建てる場所の近くで集められるようにするため
+			double dist = Math.sqrt(nakama.distanceToSqr(Vec3.atCenterOf(anchor)));
+			if (dist > ARRIVE_DISTANCE && walker.step(nakama, anchor, 3, 20, dist)) {
+				return RUNNING;
+			}
 			int[] size = blueprint.size();
 			origin = exact ? anchor : SitePlanner.choose(level, anchor, nakama.home(), size[0], size[1], size[2]);
 			Result missing = checkMaterials(nakama, level);
@@ -204,19 +216,44 @@ final class BuildTask implements Task {
 		while (index < blueprint.parts().size()) {
 			Blueprint.Part part = blueprint.parts().get(index);
 			BlockPos pos = origin.offset(part.dx(), part.dy(), part.dz());
-			if (!Terrain.isOpen(level.getBlockState(pos))) {
-				// 何かがあるところ・水や溶岩のところは飛ばす（同じものが置いてあれば完成扱い）
+			BlockState there = level.getBlockState(pos);
+			if (Terrain.isOpen(there)) {
+				return placeStep(nakama, level, part, pos);
+			}
+			if (Items.matches(part.block(), Terrain.idOf(there))) {
+				// もう同じものが置いてある
 				index++;
-				skipped++;
 				continue;
 			}
-			return placeStep(nakama, level, part, pos);
+			if (scaffold.contains(pos)) {
+				// 自分の足場が建物のマスに残っている：片付けてから置く
+				scaffold.removeAll(nakama, level);
+				return RUNNING;
+			}
+			if (Terrain.isNaturalClearable(level, pos, there) && !Breaker.lacksTool(nakama, there)) {
+				// 整地のあとに落ちてきた砂や、伸びてきた葉っぱなど：どけてから置く
+				Result approach = approach(nakama, level, pos);
+				if (approach != null) {
+					return approach;
+				}
+				List<ItemStack> drops = breaker.tick(nakama, level, pos);
+				if (drops != null) {
+					Breaker.stash(nakama, level, drops);
+				}
+				return RUNNING;
+			}
+			skip(pos, "別のブロック（" + Terrain.idOf(there) + "）がある");
 		}
 		nakama.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
 		return DONE;
 	}
 
 	private Result placeStep(NakamaEntity nakama, ServerLevel level, Blueprint.Part part, BlockPos pos) {
+		if (evadeTicks > 0) {
+			// よけている途中。ここで「近づく」処理をすると、歩くのを止めてしまう
+			evadeTicks--;
+			return RUNNING;
+		}
 		Result approach = approach(nakama, level, pos);
 		if (approach != null) {
 			return approach;
@@ -227,20 +264,35 @@ final class BuildTask implements Task {
 		wait = TICKS_PER_BLOCK;
 		if (nakama.getBoundingBox().intersects(new AABB(pos))) {
 			// 自分が立っている場所には置けないので、建物の外へよける
-			Terrain.standableNear(level, origin.offset(-2, 0, -2)).ifPresent(p ->
-				nakama.getNavigation().moveTo(p.getX() + 0.5, p.getY(), p.getZ() + 0.5, NakamaEntity.WALK_SPEED));
+			var aside = Terrain.standableNear(level, pos, true);
+			if (aside.isEmpty() || ++evadeTries > MAX_EVADE_TRIES) {
+				// 歩いてはよけられない（狭いところにいる）ので、建物の外へ出てから置き直す
+				evadeTries = 0;
+				var outside = Terrain.standableNear(level, origin.offset(-2, 0, -2));
+				if (outside.isEmpty()) {
+					skip(pos, "自分が立っていて、よけられない");
+					return RUNNING;
+				}
+				BlockPos o = outside.get();
+				nakama.getNavigation().stop();
+				nakama.snapTo(o.getX() + 0.5, o.getY(), o.getZ() + 0.5, nakama.getYRot(), nakama.getXRot());
+				return RUNNING;
+			}
+			BlockPos p = aside.get();
+			nakama.getNavigation().moveTo(p.getX() + 0.5, p.getY(), p.getZ() + 0.5, NakamaEntity.WALK_SPEED);
+			evadeTicks = EVADE_TICKS;
 			return RUNNING;
 		}
 		if (!level.getEntitiesOfClass(LivingEntity.class, new AABB(pos), e -> e != nakama && e.isAlive()).isEmpty()) {
 			// プレイヤーや動物がいる場所に置くと埋めてしまうので、どくまで待つ。長く待ってもだめなら飛ばす
 			if (++blockedTicks > BLOCKED_GIVE_UP_TICKS) {
 				blockedTicks = 0;
-				index++;
-				skipped++;
+				skip(pos, "プレイヤーか生き物がいる");
 			}
 			return RUNNING;
 		}
 		blockedTicks = 0;
+		evadeTries = 0;
 		ItemStack stack = ItemStack.EMPTY;
 		if (!part.free()) {
 			int slot = Inv.findSlot(nakama.getInventory(), part.block());
@@ -256,11 +308,18 @@ final class BuildTask implements Task {
 			nakama.getInventory().setChanged();
 			nakama.swingArm();
 			placed++;
+			index++;
 		} else {
-			skipped++;
+			skip(pos, Items.describeKey(part.block()) + "を置けなかった");
 		}
-		index++;
 		return RUNNING;
+	}
+
+	/** そのマスを飛ばして先へ進む。あとで原因を調べられるように記録に残す。 */
+	private void skip(BlockPos pos, String why) {
+		AiNakama.LOGGER.info("{}: {} のマスを飛ばしました（{}）", blueprint.japaneseName(), pos.toShortString(), why);
+		index++;
+		skipped++;
 	}
 
 	private static boolean put(NakamaEntity nakama, ServerLevel level, Blueprint.Part part, BlockPos pos, ItemStack stack) {
@@ -303,8 +362,7 @@ final class BuildTask implements Task {
 		}
 		if (!walker.step(nakama, pos, 2, 20, dist)) {
 			// どうしても近づけない1マスは飛ばして先へ進む
-			index++;
-			skipped++;
+			skip(pos, "近づけない");
 		}
 		return RUNNING;
 	}

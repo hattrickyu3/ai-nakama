@@ -59,6 +59,22 @@ class SmallPartsTest {
 	}
 
 	@Test
+	void rememberingFactsNeedsNoAi() {
+		assertEquals(List.of(new Command.Remember("僕は青い色が好きなんだ")), commands("僕は青い色が好きなんだ。覚えておいて"));
+		assertEquals(List.of(new Command.Remember("鉄は拠点の北の洞窟にある")), commands("鉄は拠点の北の洞窟にあるって覚えておいて"));
+	}
+
+	@Test
+	void severalRequestsInOneSentence() {
+		assertEquals(List.of(new Command.Collect("oak_log", 2), new Command.Craft("torch", 4)),
+			TeachParser.steps("木を2本集めて、松明を4個作って", KNOWN::contains));
+		assertEquals(List.of(new Command.Collect("cobblestone", 8), new Command.Give(null, 0)),
+			TeachParser.steps("石を8個掘ってきてそれを渡して", KNOWN::contains));
+		// 1つでも読めないものがあれば、全部をAIに任せる
+		assertTrue(TeachParser.steps("木を2本集めて、空を飛んで", KNOWN::contains).isEmpty());
+	}
+
+	@Test
 	void teachingABuilding() {
 		assertEquals(Optional.of(QuickCommands.Special.WATCH), special("見てて"));
 		assertEquals(Optional.of(QuickCommands.Special.WATCH), special("今から見張り台を建てるから見てて"));
@@ -189,7 +205,7 @@ class SmallPartsTest {
 			book.learn(new Plan.Skill("技その" + i, List.of(new Command.Follow())));
 		}
 		book.learn(new Plan.Skill("拠点を明るくする", List.of(new Command.Craft("torch", 8))));
-		var extras = new PromptBuilder.Extras(book.relevantNames("拠点を明るくして", 8), List.of("見張り台"), null);
+		var extras = new PromptBuilder.Extras(book.relevantNames("拠点を明るくして", 8), List.of("見張り台"));
 
 		String system = PromptBuilder.system("ミナ", "明るく元気");
 		String user = PromptBuilder.userForMessage("ミナ", s, m, extras, "拠点を明るくして");

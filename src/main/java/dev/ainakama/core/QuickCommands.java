@@ -45,6 +45,7 @@ public final class QuickCommands {
 	private static final Pattern WATCH = Pattern.compile("^(今から|これから)?(.*(建てる|作る|つくる)から)?(見てて|みてて|見ていて|見てね|見て|みて|よく見て(て)?)" + END);
 	private static final Pattern NAME_BUILD = Pattern.compile("^(これが|これは|今のが|いまのが)「?(.+?)」?(だよ|です|だ|っていうんだ|という建物)" + END);
 	private static final Pattern NAME_BUILD2 = Pattern.compile("^(これを|今のを|いまのを)「?(.+?)」?(として|っていう名前で|という名前で)(覚えて|おぼえて)" + END);
+	private static final Pattern REMEMBER = Pattern.compile("^(.{2,80}?)(んだ|なんだ|だよ|よ)?[。.]?(って|ということを|ことを|を)?(覚えておいて|覚えといて|おぼえておいて|覚えていて|忘れないで)" + END);
 	private static final Pattern HOME_WORD = Pattern.compile("拠点|home|ホーム|家");
 	private static final Pattern WHERE_WORD = Pattern.compile("どこ|座標|場所");
 	private static final Pattern GIVE_WORD = Pattern.compile("(渡して|わたして|ちょうだい|頂戴|落として|ドロップして)" + END);
@@ -133,6 +134,10 @@ public final class QuickCommands {
 		}
 		if (HOME_WORD.matcher(s).find() && WHERE_WORD.matcher(s).find()) {
 			return Optional.of(Match.special(Special.WHERE_HOME));
+		}
+		m = REMEMBER.matcher(s);
+		if (m.matches()) {
+			return plan("うん、覚えておくね！", new Command.Remember(m.group(1) + (m.group(2) == null ? "" : m.group(2))));
 		}
 		return Optional.empty();
 	}

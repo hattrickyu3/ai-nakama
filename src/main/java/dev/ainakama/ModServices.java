@@ -36,10 +36,9 @@ public final class ModServices {
 		library.loadBlueprints();
 		library.loadSkills(SKILLS, parser);
 		// 上限が変わっていなければ今日の回数を引き継ぐ（読み直しで回数がリセットされないように）
-		CallBudget budget = ai != null && config != null
-			&& config.dailyCallLimit == cfg.dailyCallLimit && config.cooldownSeconds == cfg.cooldownSeconds
+		CallBudget budget = ai != null && config != null && config.dailyCallLimit == cfg.dailyCallLimit
 			? ai.budget()
-			: new CallBudget(cfg.cooldownSeconds * 1000L, cfg.dailyCallLimit, ZoneId.systemDefault());
+			: new CallBudget(0, cfg.dailyCallLimit, ZoneId.systemDefault());
 		ai = new AiService(
 			new HttpLlmClient(cfg),
 			budget,

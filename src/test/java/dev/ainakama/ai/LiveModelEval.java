@@ -24,21 +24,21 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 @EnabledIfSystemProperty(named = "ainakama.live", matches = "true")
 class LiveModelEval {
 	private static final Set<String> ITEMS = Set.of("oak_log", "oak_planks", "stick", "crafting_table", "chest", "cobblestone",
-		"coal", "torch", "wooden_pickaxe", "stone_pickaxe", "furnace", "dirt", "sand", "wheat", "bread", "oak_fence", "oak_door");
+		"coal", "torch", "wooden_pickaxe", "stone_pickaxe", "furnace", "dirt", "sand", "wheat", "bread", "oak_fence", "oak_door", "raw_iron", "iron_ingot", "white_wool");
 
 	private static final List<String> REQUESTS = List.of(
-		"拠点に小屋を建てて",
 		"石のツルハシがほしいな",
-		"夜になる前に松明を用意しておいて",
-		"木を20本くらい集めてきて",
-		"ちょっとついてきてくれる？",
+		"夜になる前に明かりを用意しておいて",
+		"疲れたでしょ、ちょっと休んでいいよ。そのあと木を3本だけ取ってきてくれる？",
 		"今日はいい天気だね",
-		"チェストを2つ作って拠点に戻って",
+		"拠点の座標を教えて",
 		"羊を倒して羊毛を取ってきて",
-		"ここに柵を作って",
-		"丸石を集めてかまどを作って",
+		"丸石を集めてかまどを作って、できたら私に渡して",
 		"僕は青い色が好きなんだ。覚えておいて",
-		"持ってるものを全部チェストにしまって");
+		"扉をもう1つ作って、私が見ているところに付けて",
+		"鉄を少し掘ってきてほしい",
+		"冬支度をして",
+		"キャンプの準備をして");
 
 	@Test
 	void evaluate() {
@@ -52,7 +52,7 @@ class LiveModelEval {
 		Map<String, Integer> inv = new LinkedHashMap<>();
 		inv.put("stone_axe", 1);
 		inv.put("oak_log", 3);
-		Status status = new Status("昼", "晴れ", 20, 20, "拠点から東に5マス", inv,
+		Status status = new Status("昼", "晴れ", 20, 20, "座標 10 64 -5、拠点（5 64 -5）から東に5マス", inv,
 			List.of(Items.label("oak_log") + " 北に12マス 約30個", "stone 下に3マス"),
 			List.of("羊×3 西に20マス"), List.of("home"), "なし");
 		String system = PromptBuilder.system("ミナ", cfg.defaultPersonality);
@@ -66,6 +66,12 @@ class LiveModelEval {
 			System.out.println("\n### " + req + "  (" + ms + "ms)");
 			if (out instanceof AiService.Outcome.Success s) {
 				System.out.println("say: " + s.plan().say());
+				if (s.plan().ask() != null) {
+					System.out.println("ask: " + s.plan().ask());
+				}
+				if (s.plan().memo() != null) {
+					System.out.println("memo: " + s.plan().memo());
+				}
 				s.plan().commands().forEach(c -> System.out.println("  - " + c.describe()));
 				if (s.errors().isEmpty()) {
 					firstTryOk++;

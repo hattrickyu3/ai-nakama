@@ -37,6 +37,7 @@ public final class CraftPlanner {
 		final Map<String, Integer> inventory;
 		final List<Step> steps;
 		final Map<String, Integer> missing;
+		/** ほかの材料づくりで使ってしまわないように取り置いている数（実際のIDごと）。 */
 		final Map<String, Integer> reserved;
 
 		State(Map<String, Integer> inventory) {
@@ -54,8 +55,49 @@ public final class CraftPlanner {
 			return new State(new LinkedHashMap<>(inventory), new ArrayList<>(steps), new LinkedHashMap<>(missing), new LinkedHashMap<>(reserved));
 		}
 
+		/** key に当てはまるもののうち、取り置かれていない数。 */
 		int available(String key) {
-			return Items.count(inventory, key) - reserved.getOrDefault(key, 0);
+			int total = 0;
+			for (var e : inventory.entrySet()) {
+				if (Items.matches(key, e.getKey())) {
+					total += free(e.getKey());
+				}
+			}
+			return total;
+		}
+
+		int free(String id) {
+			return Math.max(0, inventory.getOrDefault(id, 0) - reserved.getOrDefault(id, 0));
+		}
+
+		/** key に当てはまるものを amount 個、種類ごとに取り置く。どの種類を何個取り置いたかを返す。 */
+		Map<String, Integer> reserve(String key, int amount) {
+			Map<String, Integer> taken = new LinkedHashMap<>();
+			int left = amount;
+			for (String id : byFreeAmount(key)) {
+				if (left == 0) {
+					break;
+				}
+				int n = Math.min(left, free(id));
+				if (n > 0) {
+					taken.put(id, n);
+					left -= n;
+				}
+			}
+			taken.forEach((id, n) -> reserved.merge(id, n, Integer::sum));
+			return taken;
+		}
+
+		void release(Map<String, Integer> taken) {
+			taken.forEach((id, n) -> reserved.merge(id, -n, Integer::sum));
+		}
+
+		/** key に当てはまる種類を、取り置かれていない数の多い順に。 */
+		List<String> byFreeAmount(String key) {
+			return inventory.keySet().stream()
+				.filter(id -> Items.matches(key, id) && free(id) > 0)
+				.sorted(Comparator.comparing((String id) -> free(id)).reversed())
+				.toList();
 		}
 	}
 
@@ -100,7 +142,11 @@ public final class CraftPlanner {
 			for (Recipes.Recipe r : candidates) {
 				state = before.copy();
 				if (tryRecipe(r, deficit, depth)) {
-					return true;
+					if (state.available(key) >= count) {
+						return true;
+					}
+					// 作ったが、ほしい種類にならなかった（オークの板材がほしいのに、シラカバの原木しかない、など）
+					state.missing.merge(key, count - state.available(key), Integer::sum);
 				}
 				// 足りないものが全部「集めれば手に入るもの」なら、その作り方を採用する
 				if (bestFailure == null && newMissingIsCollectable(before)) {
@@ -139,17 +185,17 @@ public final class CraftPlanner {
 		r.ingredients().forEach((ing, n) -> needs.merge(ing, n * times, Integer::sum));
 
 		// 先にそろえた材料を、あとの材料づくりで使ってしまわないように取り置く
-		Map<String, Integer> reservedHere = new LinkedHashMap<>();
+		// 板材は「オークの板材」「板材ならどれでも」のように別のキーで重なって数えられるので、取り置きは実際の種類ごとに行う
+		List<Map<String, Integer>> reservedHere = new ArrayList<>();
 		boolean ok = true;
 		for (var need : needs.entrySet()) {
 			if (ensure(need.getKey(), need.getValue(), depth + 1)) {
-				state.reserved.merge(need.getKey(), need.getValue(), Integer::sum);
-				reservedHere.put(need.getKey(), need.getValue());
+				reservedHere.add(state.reserve(need.getKey(), need.getValue()));
 			} else {
 				ok = false;
 			}
 		}
-		reservedHere.forEach((k, n) -> state.reserved.merge(k, -n, Integer::sum));
+		reservedHere.forEach(state::release);
 		if (!ok) {
 			return false;
 		}
@@ -175,19 +221,15 @@ public final class CraftPlanner {
 		state.steps.add(new Step(r.output(), times, Map.copyOf(consumed), Map.copyOf(produced)));
 	}
 
-	/** key に当てはまるものを、多く持っている種類から順に amount 個取り出す。 */
+	/** key に当てはまるものを、取り置かれていない分の多い種類から順に amount 個取り出す。 */
 	private void take(String key, int amount, Map<String, Integer> consumed) {
 		Map<String, Integer> inventory = state.inventory;
-		List<String> candidates = inventory.keySet().stream()
-			.filter(id -> Items.matches(key, id) && inventory.get(id) > 0)
-			.sorted(Comparator.comparing((String id) -> inventory.get(id)).reversed())
-			.toList();
 		int left = amount;
-		for (String id : candidates) {
+		for (String id : state.byFreeAmount(key)) {
 			if (left == 0) {
 				break;
 			}
-			int n = Math.min(left, inventory.get(id));
+			int n = Math.min(left, state.free(id));
 			inventory.merge(id, -n, Integer::sum);
 			if (inventory.get(id) == 0) {
 				inventory.remove(id);

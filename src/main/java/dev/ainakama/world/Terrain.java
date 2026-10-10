@@ -97,9 +97,20 @@ public final class Terrain {
 
 	/** target の近く（上下左右3マス以内）で立てる場所を探す。近い順。 */
 	public static Optional<BlockPos> standableNear(Level level, BlockPos target) {
+		return standableNear(level, target, false);
+	}
+
+	/**
+	 * @param beside true なら、target と同じ縦の列（真上・真下・そのもの）は選ばない。
+	 *               そのマスにブロックを置いたり掘ったりするとき、自分が邪魔にならないようにするため
+	 */
+	public static Optional<BlockPos> standableNear(Level level, BlockPos target, boolean beside) {
 		BlockPos best = null;
 		double bestDist = Double.MAX_VALUE;
 		for (BlockPos p : BlockPos.betweenClosed(target.offset(-3, -3, -3), target.offset(3, 3, 3))) {
+			if (beside && p.getX() == target.getX() && p.getZ() == target.getZ()) {
+				continue;
+			}
 			double d = p.distSqr(target);
 			if (d < bestDist && canStandAt(level, p)) {
 				best = p.immutable();

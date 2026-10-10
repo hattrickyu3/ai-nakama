@@ -2,16 +2,21 @@ package dev.ainakama.test;
 
 import dev.ainakama.ModServices;
 import dev.ainakama.command.ChatRouter;
+import dev.ainakama.core.Blueprints;
 import dev.ainakama.core.Command;
 import dev.ainakama.core.Place;
+import dev.ainakama.core.Plan;
+import dev.ainakama.core.Trigger;
 import dev.ainakama.entity.ModEntities;
 import dev.ainakama.entity.NakamaEntity;
 import dev.ainakama.world.Inv;
+import dev.ainakama.world.Terrain;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Predicate;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
+import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
@@ -19,114 +24,228 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 実際にゲームを起動して、仲間が集める・作る・建てる・話しかけに応えるかを確かめる。
- * 平らなテスト用ワールドに木と石を置き、決まった計画を渡して結果を見る。
+ * 実際にゲームを起動して、仲間が集める・作る・掘り下げる・整地して建てる・渡す・置く・覚える、ができるかを確かめる。
+ * 平らなテスト用ワールドに木・丘・でこぼこの地面を作り、決まった計画やチャットの言葉を渡して結果を見る。
  */
 public class NakamaClientGameTest implements FabricClientGameTest {
 	private static final Logger LOG = LoggerFactory.getLogger("ainakama-test");
 	private static final int LONG = 20 * 60 * 4;
+	private static final int PROGRESS_INTERVAL = 200;
 
 	private UUID nakamaId;
 	private BlockPos base;
+	private TestServerContext server;
 
 	@Override
 	public void runTest(ClientGameTestContext context) {
 		try (TestSingleplayerContext world = context.worldBuilder().create()) {
-			var server = world.getServer();
+			server = world.getServer();
 			server.runCommand("time set day");
 			server.runCommand("weather clear");
 			context.waitTicks(40);
-
 			server.runOnServer(this::setUp);
 			context.waitTicks(20);
 			context.takeScreenshot("ainakama-01-spawned");
 
-			step(context, world, "原木を4本集める", List.of(new Command.Collect("oak_log", 4)),
+			step("原木を4本集める", List.of(new Command.Collect("oak_log", 4)),
 				n -> Inv.count(n.getInventory(), "#log") >= 4, LONG);
-
-			step(context, world, "木のツルハシを作る（板材・棒・作業台を自動で作る）", List.of(new Command.Craft("wooden_pickaxe", 1)),
+			step("木のツルハシを作る（本体のレシピで、板材・棒・作業台を自動で作る）", List.of(new Command.Craft("wooden_pickaxe", 1)),
 				n -> Inv.count(n.getInventory(), "wooden_pickaxe") >= 1, LONG);
+			step("はしごを作る（手書きの表にはなかったレシピ）", List.of(new Command.Craft("ladder", 3)),
+				n -> Inv.count(n.getInventory(), "ladder") >= 3, LONG);
+			check("本体のレシピを読み込めている", server.computeOnServer(s -> dev.ainakama.core.Recipes.count()) > 300);
 
-			step(context, world, "丸石を3個集める（石を掘る）", List.of(new Command.Collect("cobblestone", 3)),
-				n -> Inv.count(n.getInventory(), "cobblestone") >= 3, LONG);
+			// 丘の上（石は土に埋まっていて見えない）で、掘り下げて丸石を取る
+			BlockPos hilltop = base.offset(-16, 8, 16);
+			server.runOnServer(s -> nakama(s).snapTo(hilltop.getX() + 0.5, hilltop.getY(), hilltop.getZ() + 0.5, 0, 0));
+			context.waitTicks(10);
+			step("見えていない石を、掘り下げて丸石を6個取る", List.of(new Command.Collect("cobblestone", 6)),
+				n -> Inv.count(n.getInventory(), "cobblestone") >= 6, LONG);
+			check("掘り下げて地面より下にいる", server.computeOnServer(s -> nakama(s).blockPosition().getY()) < hilltop.getY());
 
-			step(context, world, "拠点に小屋を建てる（足りない原木を自分で集める）", List.of(new Command.Build("hut", new Place.Home())),
-				n -> n.isIdle() && hutBlocks(n) >= 60, LONG * 2);
-			int hut = server.computeOnServer(s -> hutBlocks(nakama(s)));
-			LOG.info("[ainakama-test] 小屋のブロック数: {}", hut);
-			int wall = server.computeOnServer(s -> {
-				int n = 0;
-				for (int i = 0; i < 4; i++) {
-					if (player(s).level().getBlockState(base.offset(-10, 0, i)).is(Blocks.OAK_LOG)) {
-						n++;
-					}
-				}
-				return n;
-			});
-			if (wall != 4) {
-				throw new AssertionError("プレイヤーの原木の壁が切られた（残り " + wall + "/4）");
-			}
-			LOG.info("[ainakama-test] OK: プレイヤーの原木の壁は残っている");
+			// でこぼこ・穴・木のある場所に小屋を建てる
+			BlockPos site = base.offset(4, 0, -18);
+			step("整地して小屋を建てる（扉つき。足りない原木は自分で集める）",
+				List.of(new Command.Build("hut", new Place.Coords(site.getX(), site.getY(), site.getZ()))),
+				n -> n.isIdle() && count(n, site, 10, "_planks") >= 71, LONG * 3);
+			int[] hut = server.computeOnServer(s -> new int[] {
+				count(nakama(s), site, 10, "_planks"), count(nakama(s), site, 10, "oak_door"), floorHoles(nakama(s), site)});
+			LOG.info("[ainakama-test] 小屋: 板材 {}、扉のブロック {}、床下の穴 {}", hut[0], hut[1], hut[2]);
+			check("小屋に扉がある（上下2ブロック）", hut[1] == 2);
+			check("小屋の下に穴が残っていない", hut[2] == 0);
+			check("プレイヤーの原木の壁は切られていない", server.computeOnServer(s -> count(nakama(s), base.offset(-10, 0, 1), 3, "oak_log")) == 4);
 			context.takeScreenshot("ainakama-02-hut");
 
-			// 決まった言い方（AIを使わない）
-			server.runOnServer(s -> ChatRouter.onChat(player(s), "ミナ、ついてきて"));
+			// 置く・渡す
+			BlockPos tablePos = base.offset(0, 0, 6);
+			step("作業台を指定の場所に置く", List.of(new Command.PlaceBlock("crafting_table", new Place.Coords(tablePos.getX(), tablePos.getY(), tablePos.getZ()))),
+				n -> n.level().getBlockState(tablePos).is(Blocks.CRAFTING_TABLE), LONG);
+			step("持ち物をプレイヤーに渡す", List.of(new Command.Give(null, 0)),
+				n -> Inv.count(player(n).getInventory(), "cobblestone") >= 6, LONG);
+
+			// 建物を見せて覚える
+			BlockPos demo = base.offset(3, 0, 3);
+			chat("ミナ、見てて");
+			context.waitTicks(10);
+			server.runOnServer(s -> {
+				ServerLevel level = s.overworld();
+				level.setBlockAndUpdate(demo, Blocks.COBBLESTONE.defaultBlockState());
+				level.setBlockAndUpdate(demo.above(), Blocks.COBBLESTONE.defaultBlockState());
+				level.setBlockAndUpdate(demo.above(2), Blocks.OAK_FENCE.defaultBlockState());
+			});
+			context.waitTicks(10);
+			chat("ミナ、これが目印だよ");
+			context.waitTicks(10);
+			check("見せた建物「目印」を覚えた（3ブロック）",
+				Blueprints.find("目印").map(b -> b.parts().size()).orElse(0) == 3);
+			BlockPos markSite = base.offset(-4, 0, -8);
+			server.runOnServer(s -> player(s).getInventory().clearContent());
+			server.runOnServer(s -> nakama(s).getInventory().addItem(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.COBBLESTONE, 4)));
+			chat("ミナ、ついてきて");
+			context.waitTicks(20);
+			step("覚えた「目印」を別の場所に建てる（柵は自分で作る）",
+				List.of(new Command.Build("目印", new Place.Coords(markSite.getX(), markSite.getY(), markSite.getZ()))),
+				n -> n.isIdle() && count(n, markSite, 8, "cobblestone") >= 2 && count(n, markSite, 8, "oak_fence") >= 1, LONG * 2);
+
+			// 覚えた技と決まり（AIを使わない）
+			int callsBefore = aiCalls();
+			server.runOnServer(s -> ModServices.skills().learn(new Plan.Skill("木こり", List.of(new Command.Collect("oak_log", 2)))));
+			int logsBefore = server.computeOnServer(s -> Inv.count(nakama(s).getInventory(), "#log"));
+			chat("ミナ木こりして");
+			server.waitFor(s -> Inv.count(nakama(s).getInventory(), "#log") >= logsBefore + 2, LONG);
+			LOG.info("[ainakama-test] OK: 覚えた技「木こり」を、区切りなしの呼びかけで実行");
+			server.runOnServer(s -> ModServices.skills().setRule(new Plan.Rule(Trigger.NIGHT, List.of(new Command.Remember("夜が来た")))));
+			server.runCommand("time set night");
+			server.waitFor(s -> nakama(s).memory().notes().contains("夜が来た"), 200);
+			LOG.info("[ainakama-test] OK: 「夜になったら」の決まりが動いた");
+			server.runCommand("time set day");
+			chat("皆ついてきて");
 			server.waitFor(s -> nakama(s).currentJob().contains("ついていく"), 100);
-			String job = server.computeOnServer(s -> nakama(s).currentJob());
-			LOG.info("[ainakama-test] OK: 決まった言い方「ついてきて」→ {}", job);
+			LOG.info("[ainakama-test] OK: 「皆ついてきて」が通じた");
+			// 言葉で教える（プログラムが読み取るので、AIは使わない）
+			int logsBeforeCamp = server.computeOnServer(s -> Inv.count(nakama(s).getInventory(), "#log"));
+			chat("ミナ、キャンプの準備っていうのは、木を3本集めて、作業台を1個作ることだよ");
+			context.waitTicks(10);
+			check("教えた技「キャンプの準備」を覚えた", server.computeOnServer(s -> ModServices.skills().knows("キャンプの準備")));
+			server.waitFor(s -> nakama(s).isIdle() && Inv.count(nakama(s).getInventory(), "crafting_table") >= 1, LONG);
+			LOG.info("[ainakama-test] OK: 覚えた直後に「キャンプの準備」を実行した（原木 {} → {}）", logsBeforeCamp, server.computeOnServer(s -> Inv.count(nakama(s).getInventory(), "#log")));
+			chat("ミナ、雨が降ったら拠点に帰って");
+			context.waitTicks(10);
+			check("教えた決まり「雨が降ったら」を覚えた", server.computeOnServer(s -> ModServices.skills().rule(Trigger.RAIN).isPresent()));
+			check("ここまでAIを1回も呼んでいない", aiCalls() == callsBefore);
 
 			// 自由な言い方（AIを使う。Ollama が動いていないと失敗する）
-			int callsBefore = server.computeOnServer(s -> ModServices.ai().usage().today().calls());
-			server.runOnServer(s -> ChatRouter.onChat(player(s), "@ミナ 疲れたでしょ、ちょっと休んでいいよ。そのあと木を3本だけ取ってきてくれる？"));
-			server.waitFor(s -> nakama(s).isThinking(), 200);
-			server.waitFor(s -> !nakama(s).isThinking(), 20 * 120);
-			int callsAfter = server.computeOnServer(s -> ModServices.ai().usage().today().calls());
-			LOG.info("[ainakama-test] AI呼び出し {} → {} 回、今の作業: {}", callsBefore, callsAfter,
-				server.computeOnServer(s -> nakama(s).currentJob()));
-			if (callsAfter <= callsBefore) {
-				throw new AssertionError("AIが呼ばれなかった");
-			}
-			context.waitTicks(200);
+			talkToAi(context, "@ミナ 疲れたでしょ、ちょっと休んでいいよ。そのあと木を3本だけ取ってきてくれる？");
+			talkToAi(context, "ミナ、冬支度をして");
+			context.waitTicks(20);
+			chat("ミナ、木を2本集めて、松明を4個作って");
+			context.waitTicks(20);
+			List<String> learned = server.computeOnServer(s -> ModServices.skills().all().stream().map(Plan.Skill::name).toList());
+			LOG.info("[ainakama-test] 最後に覚えている技: {}（「冬支度」が入っていれば、AIが聞き返して、その答えを覚えられた）", learned);
+			context.waitTicks(100);
 			context.takeScreenshot("ainakama-03-after-ai");
 			LOG.info("[ainakama-test] ALL PASSED");
 		}
 	}
 
-	private void step(ClientGameTestContext context, TestSingleplayerContext world, String name, List<Command> plan,
-		Predicate<NakamaEntity> done, int timeout) {
+	private void talkToAi(ClientGameTestContext context, String text) {
+		int before = aiCalls();
+		chat(text);
+		server.waitFor(s -> nakama(s).isThinking(), 200);
+		server.waitFor(s -> !nakama(s).isThinking(), 20 * 120);
+		context.waitTicks(40);
+		int after = aiCalls();
+		LOG.info("[ainakama-test] 「{}」→ AI {}回、今の作業: {}", text, after - before, job());
+		check("AIが呼ばれた", after > before);
+	}
+
+	private void step(String name, List<Command> plan, Predicate<NakamaEntity> done, int timeout) {
 		LOG.info("[ainakama-test] START: {}", name);
-		var server = world.getServer();
 		server.runOnServer(s -> nakama(s).runPlan(plan));
-		int ticks = server.waitFor(s -> done.test(nakama(s)), timeout);
+		int ticks = waitWithProgress(done, timeout);
 		LOG.info("[ainakama-test] OK: {}（{}tick） 持ち物: {}", name, ticks,
 			server.computeOnServer(s -> Inv.counts(nakama(s).getInventory())));
+	}
+
+	/** 終わるのを待つ。10秒ごとに、今の作業と場所を記録に残す（止まったときに原因を調べられるように）。 */
+	private int waitWithProgress(Predicate<NakamaEntity> done, int timeout) {
+		int waited = 0;
+		while (true) {
+			try {
+				return waited + server.waitFor(s -> done.test(nakama(s)), PROGRESS_INTERVAL);
+			} catch (AssertionError timedOut) {
+				waited += PROGRESS_INTERVAL;
+				String state = server.computeOnServer(s -> nakama(s).currentJob() + " @ " + nakama(s).blockPosition().toShortString()
+					+ " 持ち物 " + Inv.counts(nakama(s).getInventory()));
+				LOG.info("[ainakama-test]   …{}tick: {}", waited, state);
+				if (waited >= timeout) {
+					throw timedOut;
+				}
+			}
+		}
+	}
+
+	private static void check(String what, boolean ok) {
+		if (!ok) {
+			throw new AssertionError("NG: " + what);
+		}
+		LOG.info("[ainakama-test] OK: {}", what);
+	}
+
+	private void chat(String text) {
+		server.runOnServer(s -> ChatRouter.onChat(player(s), text));
+	}
+
+	private int aiCalls() {
+		return server.computeOnServer(s -> ModServices.ai().usage().today().calls());
+	}
+
+	private String job() {
+		return server.computeOnServer(s -> nakama(s).currentJob());
 	}
 
 	private void setUp(MinecraftServer server) {
 		ServerPlayer player = player(server);
 		ServerLevel level = player.level();
 		base = player.blockPosition();
+		Blueprints.clearLearned();
+		ModServices.skills().all().forEach(sk -> ModServices.skills().forget(sk.name()));
 
-		// 木：拠点から12〜16マス離れたところに、高さ3の幹＋葉っぱを12本（原木36本分）
-		for (int i = 0; i < 12; i++) {
-			BlockPos trunk = base.offset(12 + (i % 3) * 2, 0, -6 + (i / 3) * 3);
+		// 木：拠点から12〜16マス離れたところに、高さ3の幹＋葉っぱを15本（原木45本分）
+		for (int i = 0; i < 15; i++) {
+			BlockPos trunk = base.offset(12 + (i % 3) * 2, 0, -9 + (i / 3) * 3);
 			for (int h = 0; h < 3; h++) {
 				level.setBlockAndUpdate(trunk.above(h), Blocks.OAK_LOG.defaultBlockState());
 			}
-			level.setBlockAndUpdate(trunk.above(3), Blocks.OAK_LEAVES.defaultBlockState());
+			level.setBlockAndUpdate(trunk.above(3), naturalLeaves());
 		}
 		// プレイヤーが原木で作った壁（葉っぱなし）。木より近いが、切られてはいけない
 		for (int i = 0; i < 4; i++) {
 			level.setBlockAndUpdate(base.offset(-10, 0, i), Blocks.OAK_LOG.defaultBlockState());
 		}
-		// 石：拠点の反対側の地面に5個
-		for (int i = 0; i < 5; i++) {
-			level.setBlockAndUpdate(base.offset(-12, -1, i), Blocks.STONE.defaultBlockState());
+		// 丘：外側1マスは土、中は石。石は外から見えない
+		for (BlockPos p : BlockPos.betweenClosed(base.offset(-22, 0, 10), base.offset(-10, 7, 22))) {
+			boolean shell = p.getX() == base.getX() - 22 || p.getX() == base.getX() - 10
+				|| p.getZ() == base.getZ() + 10 || p.getZ() == base.getZ() + 22 || p.getY() == base.getY() + 7;
+			level.setBlockAndUpdate(p, (shell ? Blocks.DIRT : Blocks.STONE).defaultBlockState());
 		}
+		// 小屋を建てる場所：土のでこぼこ・深さ2の穴・木
+		BlockPos site = base.offset(4, 0, -18);
+		level.setBlockAndUpdate(site.offset(1, 0, 1), Blocks.DIRT.defaultBlockState());
+		level.setBlockAndUpdate(site.offset(2, 0, 0), Blocks.DIRT.defaultBlockState());
+		level.setBlockAndUpdate(site.offset(-1, 0, 2), Blocks.DIRT.defaultBlockState());
+		level.setBlockAndUpdate(site.offset(0, -1, 0), Blocks.AIR.defaultBlockState());
+		level.setBlockAndUpdate(site.offset(0, -2, 0), Blocks.AIR.defaultBlockState());
+		for (int h = 0; h < 3; h++) {
+			level.setBlockAndUpdate(site.offset(-2, h, -1), Blocks.OAK_LOG.defaultBlockState());
+		}
+		level.setBlockAndUpdate(site.offset(-2, 3, -1), naturalLeaves());
+
 		NakamaEntity nakama = ModEntities.NAKAMA.create(level, EntitySpawnReason.COMMAND);
 		nakama.snapTo(base.getX() + 0.5, base.getY(), base.getZ() + 3.5, 180, 0);
 		nakama.setup("ミナ", base);
@@ -134,16 +253,32 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 		nakamaId = nakama.getUUID();
 	}
 
-	private int hutBlocks(NakamaEntity n) {
-		ServerLevel level = (ServerLevel) n.level();
+	/** 本物の木と同じ状態の葉っぱ（原木のとなりにあるので消えない）。初期状態のままだと、時間がたつと消えてしまう。 */
+	private static BlockState naturalLeaves() {
+		return Blocks.OAK_LEAVES.defaultBlockState().setValue(net.minecraft.world.level.block.LeavesBlock.DISTANCE, 1);
+	}
+
+	/** center のまわり radius マスにある、IDが suffix で終わるブロックの数。 */
+	private static int count(NakamaEntity n, BlockPos center, int radius, String suffix) {
 		int count = 0;
-		BlockPos origin = base.offset(2, 0, 2);
-		for (BlockPos p : BlockPos.betweenClosed(origin, origin.offset(4, 3, 4))) {
-			if (Inv.idOf(level.getBlockState(p).getBlock().asItem()).endsWith("_planks")) {
+		for (BlockPos p : BlockPos.betweenClosed(center.offset(-radius, -2, -radius), center.offset(radius, 8, radius))) {
+			if (Terrain.idOf(n.level().getBlockState(p)).endsWith(suffix)) {
 				count++;
 			}
 		}
 		return count;
+	}
+
+	/** 小屋（板材）の真下で、地面が抜けているマスの数。 */
+	private static int floorHoles(NakamaEntity n, BlockPos center) {
+		int holes = 0;
+		for (BlockPos p : BlockPos.betweenClosed(center.offset(-10, 0, -10), center.offset(10, 0, 10))) {
+			BlockState state = n.level().getBlockState(p);
+			if (Terrain.idOf(state).endsWith("_planks") && n.level().getBlockState(p.below()).canBeReplaced()) {
+				holes++;
+			}
+		}
+		return holes;
 	}
 
 	private NakamaEntity nakama(MinecraftServer server) {
@@ -152,5 +287,9 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 
 	private static ServerPlayer player(MinecraftServer server) {
 		return server.getPlayerList().getPlayers().get(0);
+	}
+
+	private static ServerPlayer player(NakamaEntity n) {
+		return ((ServerLevel) n.level()).getServer().getPlayerList().getPlayers().get(0);
 	}
 }

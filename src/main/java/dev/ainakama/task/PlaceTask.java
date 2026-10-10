@@ -12,6 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -22,10 +23,12 @@ final class PlaceTask implements Task {
 	private static final double REACH = 4.5;
 	private static final int STUCK_TICKS = 200;
 	private static final int MAX_LIFT = 3;
+	private static final int BLOCKED_GIVE_UP_TICKS = 100;
 
 	private final String item;
 	private final BlockPos requested;
 	private final Walker walker = new Walker(STUCK_TICKS);
+	private int blockedTicks;
 
 	PlaceTask(String item, BlockPos requested) {
 		this.item = item;
@@ -49,6 +52,12 @@ final class PlaceTask implements Task {
 		double dist = nakama.getEyePosition().distanceTo(Vec3.atCenterOf(pos));
 		if (dist > REACH) {
 			return walker.step(nakama, pos, 2, 20, dist) ? RUNNING : new Result.Failed("置く場所に近づけない");
+		}
+		if (nakama.getBoundingBox().intersects(new AABB(pos))) {
+			// 自分が立っている場所には置けないので、となりへよける
+			Terrain.standableNear(level, pos, true).ifPresent(p ->
+				nakama.getNavigation().moveTo(p.getX() + 0.5, p.getY(), p.getZ() + 0.5, NakamaEntity.WALK_SPEED));
+			return ++blockedTicks > BLOCKED_GIVE_UP_TICKS ? new Result.Failed("置く場所からどけない") : RUNNING;
 		}
 		nakama.getNavigation().stop();
 		nakama.getLookControl().setLookAt(Vec3.atCenterOf(pos));

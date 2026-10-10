@@ -13,12 +13,15 @@ final class Walker {
 	/** これより遠い目的地は、一度に道を探せないので、途中の地点を目指して少しずつ進む。 */
 	private static final double LONG_DISTANCE = 40;
 	private static final double WAYPOINT_DISTANCE = 28;
+	/** これより近いのにたどり着けないときは、移らずにあきらめる（すぐそばの届かない1マスのために飛び回らない）。 */
+	private static final double WARP_MIN_DISTANCE = 8;
 
 	private final int stuckTicks;
 	private double bestDistance = Double.MAX_VALUE;
 	private int sinceProgress;
 	private int repathCooldown;
 	private BlockPos lastTarget;
+	private boolean warped;
 
 	Walker(int stuckTicks) {
 		this.stuckTicks = stuckTicks;
@@ -32,6 +35,20 @@ final class Walker {
 		return new BlockPos(x, Terrain.surfaceY(nakama.level(), x, z, nakama.blockPosition().getY()), z);
 	}
 
+	private static boolean warp(NakamaEntity nakama, BlockPos target) {
+		if (!nakama.level().isLoaded(target)) {
+			return false;
+		}
+		var spot = Terrain.standableNear(nakama.level(), target, true);
+		if (spot.isEmpty()) {
+			return false;
+		}
+		BlockPos p = spot.get();
+		nakama.getNavigation().stop();
+		nakama.snapTo(p.getX() + 0.5, p.getY(), p.getZ() + 0.5, nakama.getYRot(), nakama.getXRot());
+		return true;
+	}
+
 	/** @return まだ見込みがあれば true。たどり着けないと判断したら false */
 	boolean step(NakamaEntity nakama, BlockPos target, int reachRange, int repathTicks, double distance) {
 		if (!target.equals(lastTarget)) {
@@ -39,12 +56,19 @@ final class Walker {
 			bestDistance = Double.MAX_VALUE;
 			sinceProgress = 0;
 			repathCooldown = 0;
+			warped = false;
 		}
 		if (distance < bestDistance - PROGRESS_EPSILON) {
 			bestDistance = distance;
 			sinceProgress = 0;
 		} else if (++sinceProgress > stuckTicks) {
-			return false;
+			// 歩いては行けない（崖の上・穴の底・川の向こうなど）。離れているなら、ペットのように目的地のそばへ移る
+			if (warped || distance < WARP_MIN_DISTANCE || !warp(nakama, target)) {
+				return false;
+			}
+			warped = true;
+			sinceProgress = 0;
+			bestDistance = Double.MAX_VALUE;
 		}
 		if (--repathCooldown <= 0) {
 			repathCooldown = repathTicks;

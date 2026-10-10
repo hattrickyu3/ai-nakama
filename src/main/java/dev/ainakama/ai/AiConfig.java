@@ -27,7 +27,6 @@ public final class AiConfig {
 	public int maxOutputTokens = 400;
 	public int timeoutSeconds = 120;
 	public int dailyCallLimit = 300;
-	public int cooldownSeconds = 5;
 	public String defaultPersonality = "明るくて元気。ちょっとおっちょこちょいだけど頼れる。";
 
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
@@ -75,7 +74,6 @@ public final class AiConfig {
 		maxOutputTokens = Math.max(100, Math.min(2000, maxOutputTokens));
 		timeoutSeconds = Math.max(10, Math.min(600, timeoutSeconds));
 		dailyCallLimit = Math.max(1, dailyCallLimit);
-		cooldownSeconds = Math.max(0, cooldownSeconds);
 		if (!provider.equals("ollama") && effectiveApiKey().isBlank()) {
 			problems.add(provider + " を使うには APIキーが必要です（設定ファイルの apiKey か環境変数 " + API_KEY_ENV + "）");
 		}

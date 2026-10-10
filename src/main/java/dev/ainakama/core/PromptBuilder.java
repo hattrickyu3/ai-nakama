@@ -17,24 +17,23 @@ public final class PromptBuilder {
 		  "at":{"type":"string"},"text":{"type":"string"},"name":{"type":"string"}},"required":["do"]}
 		""";
 
-	/** Ollama の format に渡す、返事の形の決まり（JSON Schema）。 */
+	/**
+	 * Ollama の format に渡す、返事の形の決まり（JSON Schema）。
+	 * 技や決まりを教わるところは {@link TeachParser} がプログラムで読むので、AIの返事には入れない（小さいAIが混乱しないように）。
+	 */
 	public static final String RESPONSE_SCHEMA = """
 		{"type":"object","properties":{
 		 "say":{"type":"string"},
 		 "plan":{"type":"array","maxItems":8,"items":%1$s},
 		 "memo":{"type":["string","null"]},
-		 "ask":{"type":["string","null"]},
-		 "teach":{"type":["object","null"],"properties":{"name":{"type":"string"},"steps":{"type":"array","maxItems":8,"items":%1$s}},"required":["name","steps"]},
-		 "rule":{"type":["object","null"],"properties":{
-		   "when":{"type":"string","enum":["night","morning","rain","enemy","inventory_full","player_far","idle"]},
-		   "steps":{"type":"array","maxItems":8,"items":%1$s}},"required":["when","steps"]}},
+		 "ask":{"type":["string","null"]}},
 		 "required":["say","plan"]}
 		""".formatted(STEP_SCHEMA);
 
 	/** 今回の言葉と一緒にAIへ渡す、増えていく情報。 */
-	public record Extras(List<String> skillNames, List<String> blueprintNames, String pendingQuestion) {
+	public record Extras(List<String> skillNames, List<String> blueprintNames) {
 		public static Extras none() {
-			return new Extras(List.of(), List.of(), null);
+			return new Extras(List.of(), List.of());
 		}
 	}
 
@@ -64,9 +63,11 @@ public final class PromptBuilder {
 			ルール:
 			- say は1〜2文の短い日本語。性格に合った話し方で。
 			- 雑談や質問には say だけで答える（plan は空）。座標などは状況に書いてあることを答える。
-			- 上の命令でできないことは、やると言わない。やり方がわからない頼みは plan を空にして、ask に質問を書く（例: 「拠点を明るくする」ってどうやるの？）。
-			- プレイヤーがやり方を教えてくれたら、teach に {"name": 技の名前, "steps": [命令]} を書いて覚える。plan にも同じ命令を書いてすぐやる。
-			- 「夜になったら〇〇して」のような決まりは、rule に {"when": きっかけ, "steps": [命令]} を書く。きっかけ: night, morning, rain, enemy, inventory_full, player_far, idle
+			- 集める・作る・建てる・置く・渡すことを頼まれたら、必ず plan に命令を書く（「〇〇がほしい」は craft、「取ってきて」は collect）。頼まれたことは最後の手順まで全部書く。
+			- 石・石炭・鉄は、近くの資源に書いていなくても collect で掘り下げて探せる（鉄は raw_iron）。
+			- 命令がないのでできないのは、戦う・動物を倒す・畑仕事・取引だけ。それを頼まれたときは plan を空にして、できないと正直に言う。
+			- 何をすればいいのかはっきりしない頼み（「キャンプの準備をして」「冬支度して」など）は、勝手に決めずに、plan を空にして ask に質問を書く。
+			  例: {"say": "キャンプの準備？", "plan": [], "ask": "「キャンプの準備」って、何をすればいいの？"}
 			- 覚えておくべき事実（好み・場所・コツ）があれば memo に書く。
 			出力はJSONだけ。使わない項目は省いてよい: {"say": "...", "plan": [{"do": "collect", "item": "oak_log", "count": 10}]}
 			""".formatted(name, personality);
@@ -74,12 +75,7 @@ public final class PromptBuilder {
 
 	/** プレイヤーに話しかけられたとき。 */
 	public static String userForMessage(String name, Status status, Memory memory, Extras extras, String playerText) {
-		StringBuilder sb = new StringBuilder(context(name, status, memory, extras, playerText));
-		sb.append("[今回]\n");
-		if (extras.pendingQuestion() != null) {
-			sb.append("あなたはさっき「").append(extras.pendingQuestion()).append("」と聞いた。次の言葉がその答えなら teach で覚える。\n");
-		}
-		return sb.append("プレイヤー: ").append(playerText).toString();
+		return context(name, status, memory, extras, playerText) + "[今回]\nプレイヤー: " + playerText;
 	}
 
 	/** プログラムで直せない失敗が起きたとき。 */
@@ -87,6 +83,18 @@ public final class PromptBuilder {
 		return context(name, status, memory, extras, failedCommand + " " + reason)
 			+ "[今回]\n作業「" + failedCommand + "」が失敗した。理由: " + reason
 			+ "\n別のやり方で計画を立て直す。できないなら plan を空にして、プレイヤーに相談する返事をする。";
+	}
+
+	/**
+	 * プレイヤーがやり方を教えてくれたが、プログラムでは読み取れなかったとき。説明を命令の並びに直してもらう。
+	 *
+	 * @param what 教わっているもの（「キャンプの準備」や「夜になったら」）
+	 */
+	public static String userForTeaching(String name, Status status, Memory memory, Extras extras, String what, String explanation) {
+		return context(name, status, memory, extras, what + " " + explanation)
+			+ "[今回]\nプレイヤーが「" + what + "」のやり方を教えてくれた: 「" + explanation + "」"
+			+ "\nこの説明を、使える命令の並びに直して plan に書く（今は実行しない。覚えるための手順）。"
+			+ "\n使える命令ではできない動きが入っていたら、plan を空にして、say で何ができないかを伝える。";
 	}
 
 	/** AIの返事が決まりどおりでなかったとき、間違いを添えて聞き直す。 */

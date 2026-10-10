@@ -100,6 +100,11 @@ public final class SkillBook {
 		return out;
 	}
 
+	/** 頼みの言葉から、技の名前にするところを取り出す。「キャンプの準備をして」→「キャンプの準備」。 */
+	public static String nameOf(String request) {
+		return stem(request);
+	}
+
 	/** 名前の語尾（〜して、〜する、〜してね など）と記号を取って、比べやすい形にする。 */
 	static String stem(String name) {
 		String s = QuickCommands.normalize(name).replaceAll("[!！。?？「」]", "");

@@ -24,6 +24,7 @@ import net.minecraft.world.phys.Vec3;
  */
 final class CollectTask implements Task {
 	private static final int SEARCH_RADIUS = 24;
+	private static final int WIDE_SEARCH_RADIUS = 56;
 	private static final int SEARCH_HEIGHT = 8;
 	private static final double REACH = 4.5;
 	private static final int HOME_PROTECT_RADIUS = 8;
@@ -71,7 +72,11 @@ final class CollectTask implements Task {
 		if (target == null || !matcher.test(level.getBlockState(target))) {
 			breaker.cancel(nakama, level);
 			searchDue = false;
-			target = findNearest(nakama, level);
+			target = findNearest(nakama, level, SEARCH_RADIUS);
+			if (target == null && digger == null) {
+				// 近くになければ、もっと遠くまで見渡して歩いていく
+				target = findNearest(nakama, level, WIDE_SEARCH_RADIUS);
+			}
 			if (target == null) {
 				return digFor(nakama, level);
 			}
@@ -161,16 +166,21 @@ final class CollectTask implements Task {
 		return Math.sqrt(dx * dx + dz * dz) <= UNDER_DISTANCE && center.y > nakama.getEyeY();
 	}
 
-	private BlockPos findNearest(NakamaEntity nakama, ServerLevel level) {
+	private BlockPos findNearest(NakamaEntity nakama, ServerLevel level, int radius) {
 		BlockPos origin = nakama.blockPosition();
 		BlockPos home = nakama.home();
 		BlockPos best = null;
 		double bestDist = Double.MAX_VALUE;
 		boolean logs = Items.isLog(item);
 		BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
-		for (int dy = -SEARCH_HEIGHT; dy <= SEARCH_HEIGHT; dy++) {
-			for (int dx = -SEARCH_RADIUS; dx <= SEARCH_RADIUS; dx++) {
-				for (int dz = -SEARCH_RADIUS; dz <= SEARCH_RADIUS; dz++) {
+		for (int dx = -radius; dx <= radius; dx++) {
+			for (int dz = -radius; dz <= radius; dz++) {
+				p.set(origin.getX() + dx, origin.getY(), origin.getZ() + dz);
+				if (!level.isLoaded(p)) {
+					// 読み込まれていない遠くの土地は、見に行かない
+					continue;
+				}
+				for (int dy = -SEARCH_HEIGHT; dy <= SEARCH_HEIGHT; dy++) {
 					p.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
 					// 上下の移動は手間がかかるので、高さの違いを重く数える
 					double d = dx * dx + dz * dz + dy * dy * 4.0;

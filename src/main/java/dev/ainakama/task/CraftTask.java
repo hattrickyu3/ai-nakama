@@ -1,5 +1,6 @@
 package dev.ainakama.task;
 
+import dev.ainakama.AiNakama;
 import dev.ainakama.core.Command;
 import dev.ainakama.core.CraftPlanner;
 import dev.ainakama.core.Items;
@@ -71,7 +72,14 @@ final class CraftTask implements Task {
 		Map<String, Integer> inv = Inv.counts(nakama.getInventory());
 		String key = Items.groupOf(item);
 		int want = Items.count(inv, key) + count;
-		CraftPlanner.Result result = CraftPlanner.plan(inv, item, want, tableNearby(nakama, level));
+		CraftPlanner.Result result;
+		try {
+			result = CraftPlanner.plan(inv, item, want, tableNearby(nakama, level));
+		} catch (RuntimeException e) {
+			// 計画の計算に不具合があっても、ゲームを止めずに「作れなかった」で済ませる
+			AiNakama.LOGGER.error("{} の作り方を計算できませんでした（持ち物: {}）", item, inv, e);
+			return new Result.Failed(Items.label(item) + "の作り方を考えているうちに、わからなくなった");
+		}
 		if (!result.complete()) {
 			List<Command> first = new ArrayList<>();
 			for (var e : result.missing().entrySet()) {

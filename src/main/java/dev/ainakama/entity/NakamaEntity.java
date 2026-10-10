@@ -27,6 +27,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
+import net.minecraft.world.entity.ai.goal.OpenDoorGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.npc.InventoryCarrier;
 import net.minecraft.world.entity.player.Player;
@@ -69,6 +70,8 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 		// 水を避けずに泳いで渡る
 		this.setPathfindingMalus(PathType.WATER, 0.0F);
 		this.getNavigation().setCanFloat(true);
+		// 扉を開けて通る（自分で建てた小屋に閉じ込められないように）
+		this.getNavigation().setCanOpenDoors(true);
 	}
 
 	public static AttributeSupplier.Builder createAttributes() {
@@ -81,6 +84,7 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 	@Override
 	protected void registerGoals() {
 		this.goalSelector.addGoal(0, new FloatGoal(this));
+		this.goalSelector.addGoal(1, new OpenDoorGoal(this, true));
 		this.goalSelector.addGoal(8, new LookAtPlayerGoal(this, Player.class, 8.0F));
 		this.goalSelector.addGoal(9, new RandomLookAroundGoal(this));
 	}

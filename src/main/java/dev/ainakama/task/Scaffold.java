@@ -39,8 +39,9 @@ final class Scaffold {
 		return -1;
 	}
 
-	int height() {
-		return placed.size();
+	/** そのマスに、自分が積んだ足場があるか。 */
+	boolean contains(BlockPos pos) {
+		return placed.contains(pos);
 	}
 
 	/**

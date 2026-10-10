@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 /** 教えて覚える仕組み（技・決まり・聞き返し）と、マイクラ本体のレシピを使ったクラフトの計画。 */
 class TeachingTest {
 	private static final Set<String> ITEMS = Set.of("oak_log", "torch", "coal", "stick", "cobblestone", "oak_door", "ladder", "iron_ingot", "iron_block");
+	private static final Set<String> ITEMS_PLUS = Set.of("oak_log", "torch", "coal", "stick", "cobblestone", "crafting_table");
 	private final SkillBook book = new SkillBook();
 	private final PlanParser parser = new PlanParser(ITEMS::contains, book::knows);
 
@@ -97,6 +98,70 @@ class TeachingTest {
 		assertEquals(List.of("拠点を明るくする"), book.relevantNames("拠点が暗いから明るくしたい", 5));
 		assertTrue(book.forget("拠点を明るくして"));
 		assertFalse(book.knows("拠点を明るくする"));
+	}
+
+	@Test
+	void teachingPhrasesAreReadWithoutAi() {
+		// 2026-10-10 のテストで、小さいAIが「教わった」と気づけなかった言い方
+		var t = TeachParser.parse("キャンプの準備っていうのは、木を3本集めて、作業台を1個作ることだよ", ITEMS_PLUS::contains).orElseThrow();
+		assertEquals("キャンプの準備", t.name());
+		assertEquals(List.of(new Command.Collect("oak_log", 3), new Command.Craft("crafting_table", 1)), t.steps());
+
+		// 読点がなくても、動詞のところで区切る
+		var joined = TeachParser.parse("冬支度というのは木を一スタック集めて拠点に帰ること", ITEMS_PLUS::contains).orElseThrow();
+		assertEquals("冬支度", joined.name());
+		assertEquals(List.of(new Command.Collect("oak_log", 64), new Command.MoveTo(new Place.Home())), joined.steps());
+
+		// プログラムで読めない説明は、名前だけ確定して、手順はAIに直してもらう
+		var hard = TeachParser.parse("見回りっていうのは、村のまわりをぐるっと歩いて様子を見ること", ITEMS_PLUS::contains).orElseThrow();
+		assertEquals("見回り", hard.name());
+		assertFalse(hard.complete());
+
+		assertTrue(TeachParser.parse("木を10本集めて", ITEMS_PLUS::contains).isEmpty());
+		assertTrue(TeachParser.parse("今日はいい天気だね", ITEMS_PLUS::contains).isEmpty());
+	}
+
+	@Test
+	void rulesAreReadWithoutAi() {
+		var night = TeachParser.parse("夜になったら拠点に帰って", ITEMS_PLUS::contains).orElseThrow();
+		assertEquals(Trigger.NIGHT, night.trigger());
+		assertEquals(List.of(new Command.MoveTo(new Place.Home())), night.steps());
+
+		var full = TeachParser.parse("持ち物がいっぱいになったら、チェストにしまって", ITEMS_PLUS::contains).orElseThrow();
+		assertEquals(Trigger.INVENTORY_FULL, full.trigger());
+		assertEquals(List.of(new Command.Store()), full.steps());
+
+		var far = TeachParser.parse("私が遠くに行ったらついてきて", ITEMS_PLUS::contains).orElseThrow();
+		assertEquals(Trigger.PLAYER_FAR, far.trigger());
+		assertEquals(List.of(new Command.Follow()), far.steps());
+	}
+
+	@Test
+	void skillNameComesFromTheRequest() {
+		assertEquals("キャンプの準備", SkillBook.nameOf("キャンプの準備をして"));
+		assertEquals("拠点を明るく", SkillBook.nameOf("拠点を明るくしてください"));
+	}
+
+	@Test
+	void exactPlanksAndAnyPlanksDoNotStealFromEachOther() {
+		// 2026-10-10 のゲーム内テストでゲームが落ちた組み合わせ：柵は「オークの板材」、棒は「板材ならどれでも」を使う
+		Recipes.install(List.of(
+			new Recipes.Recipe("oak_fence", 3, Map.of("oak_planks", 4, "stick", 2), true),
+			new Recipes.Recipe("stick", 4, Map.of(Items.ANY_PLANKS, 2), false),
+			new Recipes.Recipe("crafting_table", 1, Map.of(Items.ANY_PLANKS, 4), false)));
+
+		var fence = CraftPlanner.plan(Map.of("oak_planks", 2, "oak_log", 2), "oak_fence", 1, false);
+		assertTrue(fence.complete(), () -> "missing: " + fence.missing());
+		assertEquals(3, fence.inventoryAfter().get("oak_fence"));
+
+		// 板材がシラカバしかなくても、オークの板材が要るところは原木から作る（原木がオークならできる）
+		var mixed = CraftPlanner.plan(Map.of("birch_planks", 6, "oak_log", 1, "crafting_table", 1), "oak_fence", 1, false);
+		assertTrue(mixed.complete(), () -> "missing: " + mixed.missing());
+
+		// オークの板材が要るのに、シラカバの原木しかない：落ちずに「足りない」と報告する
+		var wrongWood = CraftPlanner.plan(Map.of("birch_log", 4, "crafting_table", 1), "oak_fence", 1, false);
+		assertFalse(wrongWood.complete());
+		assertFalse(wrongWood.missing().isEmpty());
 	}
 
 	@Test
