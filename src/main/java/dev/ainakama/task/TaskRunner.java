@@ -16,8 +16,11 @@ public final class TaskRunner {
 	/** 差し込みの深さの上限。かまど ← 丸石 ← 木のツルハシ ← 原木、で3段。 */
 	public static final int MAX_DEPTH = 3;
 
-	/** 同じ命令を「先にやること」のあとでやり直す回数の上限。材料集めが空回りし続けないようにする。 */
-	public static final int MAX_RETRIES = 2;
+	/**
+	 * 同じ命令を「先にやること」のあとでやり直す回数の上限。材料集めが空回りし続けないようにする。
+	 * 建築は「材料 → ツルハシ → 足元の土 → 足場の土」と別々の理由で何度かやり直すことがあるので、少し多めにしている。
+	 */
+	public static final int MAX_RETRIES = 4;
 
 	/**
 	 * @param depth   差し込みの深さ

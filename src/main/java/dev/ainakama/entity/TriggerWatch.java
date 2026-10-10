@@ -22,11 +22,17 @@ final class TriggerWatch {
 	private static final int IDLE_TICKS = 20 * 30;
 	static final int POLL_INTERVAL = 20;
 
+	/** 同じきっかけをもう一度知らせるまでにあける回数（POLL_INTERVAL 単位。30秒）。 */
+	private static final int REFIRE_POLLS = 30;
+
 	private final Map<Trigger, Boolean> last = new EnumMap<>(Trigger.class);
+	private final Map<Trigger, Integer> lastFired = new EnumMap<>(Trigger.class);
+	private int polls;
 	private int idleTicks;
 
 	/** POLL_INTERVAL tickごとに呼ぶ。今回新しく起きたきっかけを返す。 */
 	List<Trigger> poll(NakamaEntity nakama, ServerLevel level, boolean idle) {
+		polls++;
 		String time = Status.timeOfDay(level.getOverworldClockTime());
 		idleTicks = idle ? idleTicks + POLL_INTERVAL : 0;
 		Player player = level.getNearestPlayer(nakama, -1);
@@ -46,9 +52,16 @@ final class TriggerWatch {
 	private void check(List<Trigger> fired, Trigger trigger, boolean now) {
 		Boolean before = last.put(trigger, now);
 		// 最初の1回（before == null）は、今の状態を覚えるだけにする。ワールドに入った瞬間に動き出さないように
-		if (now && Boolean.FALSE.equals(before)) {
-			fired.add(trigger);
+		if (!now || !Boolean.FALSE.equals(before)) {
+			return;
 		}
+		// 敵が見える範囲のふちを行ったり来たりするときなど、同じきっかけが立て続けに起きても、しばらくは知らせない
+		Integer lastTick = lastFired.get(trigger);
+		if (lastTick != null && polls - lastTick < REFIRE_POLLS) {
+			return;
+		}
+		lastFired.put(trigger, polls);
+		fired.add(trigger);
 	}
 
 	private static boolean isFull(NakamaEntity nakama) {

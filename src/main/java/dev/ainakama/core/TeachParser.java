@@ -36,6 +36,7 @@ public final class TeachParser {
 	private static final Pattern JOINED = Pattern.compile(
 		"(取ってきて|掘ってきて|切ってきて|ついてきて|集めて|あつめて|掘って|切って|作って|つくって|建てて|置いて|渡して|しまって|入れて|帰って|戻って)(?=.)");
 	private static final Pattern CLAUSE_HEAD = Pattern.compile("^(から|そして|あと|で|、)+");
+	private static final Pattern REQUEST_END = Pattern.compile("(て|で|てね|でね|てよ|ください|てほしい|て欲しい|こと)[。!！]*$");
 	private static final Pattern TAIL = Pattern.compile("(っていうこと|ということ|ってこと|こと)?(だよ|なんだよ|なんだ|です|だ|ね|よ|んだよ)?[。!！]*$");
 
 	private static final Map<Pattern, Trigger> TRIGGERS = new LinkedHashMap<>();
@@ -79,13 +80,21 @@ public final class TeachParser {
 
 	/** 教える言い方なら、名前（またはきっかけ）と手順を返す。 */
 	public static Optional<Teaching> parse(String text, Predicate<String> itemExists) {
+		if (text.contains("？") || text.contains("?")) {
+			// 「〇〇のやり方は？」のような質問は、教えているのではない
+			return Optional.empty();
+		}
 		String s = QuickCommands.normalize(text.replace("、", "\u0001")).replace("\u0001", "、");
 		for (var e : TRIGGERS.entrySet()) {
 			Matcher m = e.getKey().matcher(s);
 			if (m.find()) {
 				String rest = s.substring(m.end()).replaceFirst("^[、,]", "");
-				return rest.isBlank() ? Optional.empty()
-					: Optional.of(new Teaching(null, e.getValue(), rest, steps(rest, itemExists)));
+				List<Command> ruleSteps = steps(rest, itemExists);
+				// 「夜になったら危ないよ」のような、頼みごとではない言葉は決まりにしない
+				if (rest.isBlank() || (ruleSteps.isEmpty() && !REQUEST_END.matcher(rest).find())) {
+					return Optional.empty();
+				}
+				return Optional.of(new Teaching(null, e.getValue(), rest, ruleSteps));
 			}
 		}
 		Matcher m = SKILL.matcher(s);

@@ -58,6 +58,14 @@ public final class ModServices {
 		return ai;
 	}
 
+	/**
+	 * 覚えた技と決まりを、ファイルから読み直す。
+	 * マイクラ本体のレシピを読み込んだあとに呼ぶ（起動直後は手書きのレシピしかなく、「ベッドを作る」のような技が読めずに消えてしまうため）。
+	 */
+	public static synchronized void reloadSkills() {
+		library().loadSkills(SKILLS, new PlanParser(Inv::itemExists, SKILLS::knows));
+	}
+
 	/** 覚えた技と決まりの帳面（仲間全員で共有）。 */
 	public static SkillBook skills() {
 		return SKILLS;

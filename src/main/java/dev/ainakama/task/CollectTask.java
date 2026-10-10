@@ -93,7 +93,7 @@ final class CollectTask implements Task {
 		double dist = nakama.getEyePosition().distanceTo(center);
 		if (dist > REACH) {
 			breaker.cancel(nakama, level);
-			if (isRightUnder(nakama, center) && scaffold.raise(nakama, level)) {
+			if (isRightUnder(nakama, center) && scaffold.raise(nakama, level, Set.of())) {
 				return RUNNING;
 			}
 			if (!walker.step(nakama, target, 1, 20, dist)) {
@@ -196,6 +196,10 @@ final class CollectTask implements Task {
 					}
 					if (!logs && !Terrain.isExposed(level, p)) {
 						// まわりが全部埋まっているものには手が届かない（掘り下げて探す）
+						continue;
+					}
+					if (!logs && Terrain.isHardGround(level.getBlockState(p)) && !Terrain.isEmbedded(level, p)) {
+						// 壁のように立っている石は、プレイヤーの建物かもしれないので掘らない
 						continue;
 					}
 					best = p.immutable();

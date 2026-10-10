@@ -38,7 +38,7 @@ final class GiveTask implements Task {
 		if (dist > HAND_OVER_DISTANCE) {
 			// たどり着けないほど離れていたら、ついていくときと同じようにそばへ移る
 			if (!walker.step(nakama, player.blockPosition(), 2, 10, dist)) {
-				nakama.snapTo(player.getX(), player.getY(), player.getZ(), nakama.getYRot(), nakama.getXRot());
+				return new Result.Failed("プレイヤーのところにたどり着けない");
 			}
 			return RUNNING;
 		}

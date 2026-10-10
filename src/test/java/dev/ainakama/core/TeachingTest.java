@@ -137,6 +137,17 @@ class TeachingTest {
 	}
 
 	@Test
+	void questionsAndRemarksAreNotTeachings() {
+		assertTrue(TeachParser.parse("ダイヤのやり方は？", ITEMS_PLUS::contains).isEmpty());
+		assertTrue(TeachParser.parse("キャンプの準備っていうのは何をするの?", ITEMS_PLUS::contains).isEmpty());
+		assertTrue(TeachParser.parse("夜になったら危ないよ", ITEMS_PLUS::contains).isEmpty());
+		// 頼みごとの形なら、プログラムで読めなくても決まりとして受け取る（手順はAIに直してもらう）
+		var patrol = TeachParser.parse("敵が来たら大きな声で知らせて", ITEMS_PLUS::contains).orElseThrow();
+		assertEquals(Trigger.ENEMY_NEAR, patrol.trigger());
+		assertFalse(patrol.complete());
+	}
+
+	@Test
 	void skillNameComesFromTheRequest() {
 		assertEquals("キャンプの準備", SkillBook.nameOf("キャンプの準備をして"));
 		assertEquals("拠点を明るく", SkillBook.nameOf("拠点を明るくしてください"));

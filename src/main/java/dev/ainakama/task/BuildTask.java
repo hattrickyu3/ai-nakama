@@ -74,6 +74,9 @@ final class BuildTask implements Task {
 	@Override
 	public Result tick(NakamaEntity nakama, ServerLevel level) {
 		if (origin == null) {
+			if (!level.isLoaded(anchor)) {
+				return new Result.Failed("建てる場所が遠すぎる（そこまで連れていってね）");
+			}
 			// まず建てる場所まで行く。材料が足りないとき、建てる場所の近くで集められるようにするため
 			double dist = Math.sqrt(nakama.distanceToSqr(Vec3.atCenterOf(anchor)));
 			if (dist > ARRIVE_DISTANCE && walker.step(nakama, anchor, 3, 20, dist)) {
@@ -107,11 +110,17 @@ final class BuildTask implements Task {
 		while (index < work.size()) {
 			BlockPos pos = work.get(index);
 			BlockState state = level.getBlockState(pos);
-			if (Terrain.isOpen(state) || !Terrain.isNaturalClearable(level, pos, state) || isAlreadyBuilt(pos, state)) {
+			if (Terrain.isOpen(state) || !Terrain.isNaturalClearable(level, pos, state) || isAlreadyBuilt(pos, state)
+				|| scaffold.contains(pos) || mightBeWall(pos, state)) {
 				index++;
 				continue;
 			}
 			if (Breaker.lacksTool(nakama, state) && Terrain.isGround(state)) {
+				if (Inv.hasPickaxe(nakama.getInventory())) {
+					// 持っているツルハシでは掘れない硬さ：そのままにして先へ進む
+					index++;
+					continue;
+				}
 				return new Result.Needs(List.of(new Command.Craft("wooden_pickaxe", 1)), "石をどけるのにツルハシが要る");
 			}
 			Result approach = approach(nakama, level, pos);
@@ -127,6 +136,11 @@ final class BuildTask implements Task {
 		}
 		next(Stage.FOUNDATION);
 		return RUNNING;
+	}
+
+	/** 床より2マス以上高いところにある石か。石の家の壁かもしれないので、壊さずにおく。 */
+	private boolean mightBeWall(BlockPos pos, BlockState state) {
+		return Terrain.isHardGround(state) && pos.getY() - origin.getY() >= Terrain.WALL_HEIGHT;
 	}
 
 	/** 設計図どおりのブロックがもう置いてあるマスか（やり直しのとき、土や石でできた部分を壊さないため）。 */
@@ -167,7 +181,7 @@ final class BuildTask implements Task {
 				index++;
 				continue;
 			}
-			int slot = Scaffold.fillerSlot(nakama);
+			int slot = Scaffold.fillerSlot(nakama, blueprint.materials().keySet());
 			if (slot < 0) {
 				int left = Math.min(FILLER_BATCH, work.size() - index);
 				return new Result.Needs(List.of(new Command.Collect("dirt", left)), "足元を埋める土が足りない");
@@ -180,6 +194,13 @@ final class BuildTask implements Task {
 				return RUNNING;
 			}
 			wait = TICKS_PER_BLOCK;
+			if (nakama.getBoundingBox().intersects(new AABB(pos)) && evadeTries++ < MAX_EVADE_TRIES) {
+				// 埋めたい穴に自分が落ちている：建物の外へ出てから埋める
+				Terrain.standableNear(level, origin.offset(-2, 0, -2)).ifPresent(o ->
+					nakama.snapTo(o.getX() + 0.5, o.getY(), o.getZ() + 0.5, nakama.getYRot(), nakama.getXRot()));
+				return RUNNING;
+			}
+			evadeTries = 0;
 			ItemStack stack = nakama.getInventory().getItem(slot);
 			if (Placer.place(level, pos, stack, Direction.NORTH)) {
 				nakama.getInventory().setChanged();
@@ -220,17 +241,17 @@ final class BuildTask implements Task {
 			if (Terrain.isOpen(there)) {
 				return placeStep(nakama, level, part, pos);
 			}
+			if (scaffold.contains(pos)) {
+				// 自分の足場が建物のマスに残っている：片付けてから置く（足場を建物の一部と取り違えないよう、先に確かめる）
+				scaffold.removeAll(nakama, level);
+				return RUNNING;
+			}
 			if (Items.matches(part.block(), Terrain.idOf(there))) {
 				// もう同じものが置いてある
 				index++;
 				continue;
 			}
-			if (scaffold.contains(pos)) {
-				// 自分の足場が建物のマスに残っている：片付けてから置く
-				scaffold.removeAll(nakama, level);
-				return RUNNING;
-			}
-			if (Terrain.isNaturalClearable(level, pos, there) && !Breaker.lacksTool(nakama, there)) {
+			if (Terrain.isNaturalClearable(level, pos, there) && !Breaker.lacksTool(nakama, there) && !mightBeWall(pos, there)) {
 				// 整地のあとに落ちてきた砂や、伸びてきた葉っぱなど：どけてから置く
 				Result approach = approach(nakama, level, pos);
 				if (approach != null) {
@@ -353,10 +374,10 @@ final class BuildTask implements Task {
 		double dz = center.z - nakama.getZ();
 		boolean highAbove = Math.sqrt(dx * dx + dz * dz) <= 3.0 && center.y > nakama.getEyeY();
 		if (highAbove) {
-			if (scaffold.raise(nakama, level)) {
+			if (scaffold.raise(nakama, level, blueprint.materials().keySet())) {
 				return RUNNING;
 			}
-			if (!Scaffold.hasFiller(nakama)) {
+			if (Scaffold.fillerSlot(nakama, blueprint.materials().keySet()) < 0) {
 				return new Result.Needs(List.of(new Command.Collect("dirt", FILLER_BATCH)), "高いところに届く足場の土が足りない");
 			}
 		}

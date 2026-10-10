@@ -46,6 +46,7 @@ public final class NakamaCommands {
 			.then(Commands.literal("list").executes(NakamaCommands::list))
 			.then(Commands.literal("skills").executes(NakamaCommands::skills))
 			.then(Commands.literal("forget")
+				.requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
 				.then(Commands.argument("name", StringArgumentType.greedyString())
 					.executes(ctx -> forget(ctx, StringArgumentType.getString(ctx, "name"))))));
 	}

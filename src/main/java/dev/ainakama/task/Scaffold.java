@@ -6,6 +6,7 @@ import dev.ainakama.world.Terrain;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundSource;
@@ -23,14 +24,22 @@ final class Scaffold {
 	static final List<String> FILLERS = List.of("dirt", "cobblestone", "cobbled_deepslate", "netherrack", "stone");
 	private static final int MAX_HEIGHT = 24;
 
-	private final Deque<BlockPos> placed = new ArrayDeque<>();
-
-	static boolean hasFiller(NakamaEntity nakama) {
-		return fillerSlot(nakama) >= 0;
+	/** 積んだ場所と、そこに積んだブロックの種類。 */
+	private record Placed(BlockPos pos, String block) {
 	}
 
-	static int fillerSlot(NakamaEntity nakama) {
+	private final Deque<Placed> placed = new ArrayDeque<>();
+
+	/**
+	 * 足場に使えるものが入っている持ち物の位置。
+	 *
+	 * @param keep 足場に使ってはいけないもの（これから建物に使う材料）
+	 */
+	static int fillerSlot(NakamaEntity nakama, Set<String> keep) {
 		for (String id : FILLERS) {
+			if (keep.contains(id)) {
+				continue;
+			}
 			int slot = Inv.findSlot(nakama.getInventory(), id);
 			if (slot >= 0) {
 				return slot;
@@ -41,7 +50,7 @@ final class Scaffold {
 
 	/** そのマスに、自分が積んだ足場があるか。 */
 	boolean contains(BlockPos pos) {
-		return placed.contains(pos);
+		return placed.stream().anyMatch(p -> p.pos().equals(pos));
 	}
 
 	/**
@@ -49,8 +58,8 @@ final class Scaffold {
 	 *
 	 * @return 上がれたら true。材料がない・頭の上がふさがっている・高すぎるなら false
 	 */
-	boolean raise(NakamaEntity nakama, ServerLevel level) {
-		int slot = fillerSlot(nakama);
+	boolean raise(NakamaEntity nakama, ServerLevel level, Set<String> keep) {
+		int slot = fillerSlot(nakama, keep);
 		BlockPos feet = nakama.blockPosition();
 		if (slot < 0 || placed.size() >= MAX_HEIGHT || !Terrain.isOpen(level.getBlockState(feet.above(2)))) {
 			return false;
@@ -68,16 +77,18 @@ final class Scaffold {
 		level.playSound(null, feet, state.getSoundType().getPlaceSound(), SoundSource.BLOCKS, 1.0F, 1.0F);
 		stack.shrink(1);
 		nakama.getInventory().setChanged();
-		placed.push(feet);
+		placed.push(new Placed(feet, Terrain.idOf(state)));
 		return true;
 	}
 
 	/** 積んだ足場を上から全部取りのぞき、持ち物に戻す。 */
 	void removeAll(NakamaEntity nakama, ServerLevel level) {
 		while (!placed.isEmpty()) {
-			BlockPos pos = placed.pop();
+			Placed p = placed.pop();
+			BlockPos pos = p.pos();
 			BlockState state = level.getBlockState(pos);
-			if (FILLERS.contains(Terrain.idOf(state))) {
+			// 自分が積んだ種類のままのときだけ取りのぞく（あとから別のものに置き換わっていたら触らない）
+			if (p.block().equals(Terrain.idOf(state))) {
 				level.destroyBlock(pos, false, nakama);
 				Breaker.stash(nakama, level, List.of(new ItemStack(state.getBlock().asItem())));
 			}

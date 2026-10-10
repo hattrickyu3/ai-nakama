@@ -16,6 +16,7 @@ public final class SitePlanner {
 	/** 頼まれた場所から、ずらして探す範囲（マス）。 */
 	private static final int SEARCH = 4;
 	private static final double COST_PLAYER_BLOCK = 1000;
+	private static final double COST_MAYBE_WALL = 300;
 	private static final double COST_OCCUPIED = 10000;
 	private static final double COST_PER_SHIFT = 0.5;
 
@@ -76,8 +77,14 @@ public final class SitePlanner {
 		BlockPos max = origin.offset(sx - 1, sy - 1, sz - 1);
 		for (BlockPos p : BlockPos.betweenClosed(origin, max)) {
 			BlockState state = level.getBlockState(p);
-			if (!Terrain.isOpen(state) && !Terrain.isNaturalClearable(level, p, state)) {
+			if (Terrain.isOpen(state)) {
+				continue;
+			}
+			if (!Terrain.isNaturalClearable(level, p, state)) {
 				cost += COST_PLAYER_BLOCK;
+			} else if (Terrain.isHardGround(state) && p.getY() - origin.getY() >= Terrain.WALL_HEIGHT) {
+				// 床より2マス以上高い石は、石の家の壁かもしれないので、できるだけ避ける
+				cost += COST_MAYBE_WALL;
 			}
 		}
 		AABB box = new AABB(origin.getX(), origin.getY(), origin.getZ(), max.getX() + 1, max.getY() + 1, max.getZ() + 1);

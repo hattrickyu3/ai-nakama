@@ -1,6 +1,7 @@
 package dev.ainakama.task;
 
 import dev.ainakama.entity.NakamaEntity;
+import dev.ainakama.world.Inv;
 import dev.ainakama.world.Terrain;
 import java.util.List;
 import net.minecraft.core.BlockPos;
@@ -61,7 +62,13 @@ final class Digger {
 			}
 			if (Breaker.lacksTool(nakama, state)) {
 				breaker.cancel(nakama, level);
-				return Outcome.NEED_PICKAXE;
+				if (!Inv.hasPickaxe(nakama.getInventory())) {
+					return Outcome.NEED_PICKAXE;
+				}
+				// ツルハシはあるが、この硬さは掘れない：この向きはやめる
+				cells = null;
+				turn();
+				return Outcome.WORKING;
 			}
 			List<ItemStack> drops = breaker.tick(nakama, level, cell);
 			if (drops != null) {

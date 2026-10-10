@@ -1,7 +1,9 @@
 package dev.ainakama.command;
 
+import dev.ainakama.core.QuickCommands;
 import dev.ainakama.entity.ModEntities;
 import dev.ainakama.entity.NakamaEntity;
+import dev.ainakama.world.Inv;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -36,7 +38,9 @@ public final class ChatRouter {
 
 		for (String all : EVERYONE) {
 			Optional<String> rest = afterName(body, all, at);
-			if (rest.isPresent()) {
+			// 「皆で行こう」「everyone is here」のような普通の会話に全員が反応しないよう、
+			// 区切りがないときは、決まった言い方（「皆ついてきて」など）のときだけ届ける
+			if (rest.isPresent() && (at || hasSeparator(body, all) || QuickCommands.match(rest.get(), Inv::itemExists).isPresent())) {
 				near.forEach(n -> deliver(n, player, rest.get()));
 				return;
 			}
@@ -62,6 +66,10 @@ public final class ChatRouter {
 		// 「ミナ石を掘って」のように、区切りなしで名前に続けて話しかけてもよい
 		String message = rest.replaceFirst("^[" + SEPARATORS + "]+", "").strip();
 		return message.isEmpty() ? Optional.empty() : Optional.of(message);
+	}
+
+	private static boolean hasSeparator(String body, String name) {
+		return body.length() > name.length() && SEPARATORS.indexOf(body.charAt(name.length())) >= 0;
 	}
 
 	private static void deliver(NakamaEntity nakama, ServerPlayer player, String message) {

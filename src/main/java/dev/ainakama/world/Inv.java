@@ -91,6 +91,16 @@ public final class Inv {
 		return ItemStack.EMPTY;
 	}
 
+	public static boolean hasPickaxe(Container inv) {
+		for (int i = 0; i < inv.getContainerSize(); i++) {
+			ItemStack s = inv.getItem(i);
+			if (!s.isEmpty() && idOf(s.getItem()).endsWith("_pickaxe")) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public static boolean isTool(ItemStack s) {
 		String id = idOf(s.getItem());
 		return id.endsWith("_pickaxe") || id.endsWith("_axe") || id.endsWith("_shovel") || id.endsWith("_sword")

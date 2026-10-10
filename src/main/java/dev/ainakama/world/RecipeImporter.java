@@ -1,6 +1,7 @@
 package dev.ainakama.world;
 
 import dev.ainakama.AiNakama;
+import dev.ainakama.ModServices;
 import dev.ainakama.core.Items;
 import dev.ainakama.core.Recipes;
 import java.util.ArrayList;
@@ -39,6 +40,7 @@ public final class RecipeImporter {
 		}
 		Recipes.install(recipes);
 		AiNakama.LOGGER.info("クラフトのレシピを {} 種類読み込みました", Recipes.count());
+		ModServices.reloadSkills();
 	}
 
 	private static void convert(Recipe<?> recipe, List<Recipes.Recipe> out) {

@@ -5,7 +5,6 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import dev.ainakama.core.Blueprint;
 import dev.ainakama.core.Blueprints;
@@ -41,8 +40,9 @@ public final class Library {
 		}
 		try {
 			book.load(JsonParser.parseString(Files.readString(file, StandardCharsets.UTF_8)).getAsJsonObject(), parser);
-		} catch (IOException | JsonParseException | IllegalStateException e) {
-			AiNakama.LOGGER.warn("覚えた技を読み込めませんでした: {}", e.getMessage());
+		} catch (IOException | RuntimeException e) {
+			// 手で書き換えて壊れたファイルでも、起動は止めない
+			AiNakama.LOGGER.warn("覚えた技を読み込めませんでした: {}", e.toString());
 		}
 	}
 
@@ -60,8 +60,8 @@ public final class Library {
 				try {
 					readBlueprint(JsonParser.parseString(Files.readString(file, StandardCharsets.UTF_8)).getAsJsonObject())
 						.ifPresent(Blueprints::learn);
-				} catch (IOException | JsonParseException | IllegalStateException e) {
-					AiNakama.LOGGER.warn("設計図 {} を読み込めませんでした: {}", file.getFileName(), e.getMessage());
+				} catch (IOException | RuntimeException e) {
+					AiNakama.LOGGER.warn("設計図 {} を読み込めませんでした: {}", file.getFileName(), e.toString());
 				}
 			}
 		} catch (IOException e) {
