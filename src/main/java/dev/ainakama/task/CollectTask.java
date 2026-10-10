@@ -6,6 +6,10 @@ import dev.ainakama.entity.NakamaEntity;
 import dev.ainakama.world.Inv;
 import dev.ainakama.world.Sources;
 import dev.ainakama.world.Terrain;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -33,6 +37,8 @@ final class CollectTask implements Task {
 	private static final int MAX_DIG_STEPS = 60;
 	/** 真下〜斜め下に立っていて、高さだけが足りないとみなす水平の距離。 */
 	private static final double UNDER_DISTANCE = 2.5;
+	/** 1本の木として最後まで切る原木の数の上限（巨大な木やつながった森を切り続けないように）。 */
+	private static final int MAX_TREE_LOGS = 48;
 
 	private final String item;
 	private final String group;
@@ -42,6 +48,8 @@ final class CollectTask implements Task {
 	private final Walker walker = new Walker(STUCK_TICKS);
 	private final Breaker breaker = new Breaker();
 	private final Scaffold scaffold = new Scaffold();
+	/** いま切っている木の、残りの原木（下から順）。 */
+	private final Deque<BlockPos> tree = new ArrayDeque<>();
 
 	private Digger digger;
 	private boolean searchDue;
@@ -59,7 +67,7 @@ final class CollectTask implements Task {
 
 	@Override
 	public Result tick(NakamaEntity nakama, ServerLevel level) {
-		if (gathered >= count) {
+		if (gathered >= count && target == null && !treeLeft(level)) {
 			return finish(nakama, level, DONE);
 		}
 		if (++ticks > TIME_LIMIT_TICKS) {
@@ -72,13 +80,23 @@ final class CollectTask implements Task {
 		if (target == null || !matcher.test(level.getBlockState(target))) {
 			breaker.cancel(nakama, level);
 			searchDue = false;
-			target = findNearest(nakama, level, SEARCH_RADIUS);
-			if (target == null && digger == null) {
-				// 近くになければ、もっと遠くまで見渡して歩いていく
-				target = findNearest(nakama, level, WIDE_SEARCH_RADIUS);
-			}
+			// 切りかけの木が残っていれば、その続きを先に切る（上の幹が宙に残らないように）
+			target = treeLeft(level) ? tree.pollFirst() : null;
 			if (target == null) {
-				return digFor(nakama, level);
+				if (gathered >= count) {
+					return finish(nakama, level, DONE);
+				}
+				target = findNearest(nakama, level, SEARCH_RADIUS);
+				if (target == null && digger == null) {
+					// 近くになければ、もっと遠くまで見渡して歩いていく
+					target = findNearest(nakama, level, WIDE_SEARCH_RADIUS);
+				}
+				if (target == null) {
+					return digFor(nakama, level);
+				}
+				if (Items.isLog(item)) {
+					startTree(nakama, level, target);
+				}
 			}
 		}
 		if (digger != null) {
@@ -157,7 +175,52 @@ final class CollectTask implements Task {
 		if (!Breaker.stash(nakama, level, drops)) {
 			return finish(nakama, level, new Result.Failed("持ち物がいっぱい（「しまって」か「渡して」と言ってね）"));
 		}
-		return gathered >= count ? finish(nakama, level, DONE) : RUNNING;
+		return gathered >= count && !treeLeft(level) ? finish(nakama, level, DONE) : RUNNING;
+	}
+
+	/**
+	 * first とつながっている原木（同じ木の残り）を、下から順に並べて覚える。
+	 * 頼まれた数に届いても、この木は最後まで切る。
+	 */
+	private void startTree(NakamaEntity nakama, ServerLevel level, BlockPos first) {
+		tree.clear();
+		Set<BlockPos> seen = new HashSet<>(Set.of(first));
+		Deque<BlockPos> open = new ArrayDeque<>(List.of(first));
+		List<BlockPos> rest = new ArrayList<>();
+		while (!open.isEmpty() && rest.size() < MAX_TREE_LOGS) {
+			BlockPos from = open.pollFirst();
+			for (BlockPos near : BlockPos.betweenClosed(from.offset(-1, -1, -1), from.offset(1, 1, 1))) {
+				BlockPos p = near.immutable();
+				if (seen.add(p) && isCuttableLog(nakama, level, p)) {
+					open.addLast(p);
+					rest.add(p);
+				}
+			}
+		}
+		rest.sort(Comparator.comparingInt((BlockPos p) -> p.getY()).thenComparingDouble(p -> p.distSqr(first)));
+		tree.addAll(rest);
+	}
+
+	/** 切りかけの木に、まだ切れる原木が残っているか（もう無くなったものは忘れる）。 */
+	private boolean treeLeft(ServerLevel level) {
+		while (!tree.isEmpty() && (skipped.contains(tree.peekFirst()) || !matcher.test(level.getBlockState(tree.peekFirst())))) {
+			tree.pollFirst();
+		}
+		return !tree.isEmpty();
+	}
+
+	/** 切ってよい原木か。プレイヤーが置いたかもしれないもの（葉っぱがない・拠点のそば）は切らない。 */
+	private boolean isCuttableLog(NakamaEntity nakama, ServerLevel level, BlockPos p) {
+		BlockPos home = nakama.home();
+		return !skipped.contains(p) && matcher.test(level.getBlockState(p))
+			&& (home == null || home.distSqr(p) >= HOME_PROTECT_RADIUS * HOME_PROTECT_RADIUS)
+			&& Sources.isNaturalLog(level, p);
+	}
+
+	/** やり直すときは、もう集めた分を引いた残りの数だけ集める。 */
+	@Override
+	public Command pinned(Command original) {
+		return gathered > 0 && gathered < count ? new Command.Collect(item, count - gathered) : original;
 	}
 
 	private boolean isRightUnder(NakamaEntity nakama, Vec3 center) {
