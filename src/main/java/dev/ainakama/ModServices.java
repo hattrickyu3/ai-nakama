@@ -6,6 +6,7 @@ import dev.ainakama.ai.HttpLlmClient;
 import dev.ainakama.ai.UsageLog;
 import dev.ainakama.core.CallBudget;
 import dev.ainakama.core.PlanParser;
+import dev.ainakama.core.SkillBook;
 import dev.ainakama.world.Inv;
 import java.nio.file.Path;
 import java.time.ZoneId;
@@ -15,8 +16,10 @@ import net.fabricmc.loader.api.FabricLoader;
 
 /** 設定とAIの窓口を持っておく場所。/nakama reload で作り直せる。 */
 public final class ModServices {
+	private static final SkillBook SKILLS = new SkillBook();
 	private static volatile AiConfig config;
 	private static volatile AiService ai;
+	private static volatile Library library;
 
 	private ModServices() {
 	}
@@ -28,6 +31,10 @@ public final class ModServices {
 		AiConfig cfg = AiConfig.loadOrCreate(dir.resolve("ainakama.json"), warnings);
 		Path logFile = FabricLoader.getInstance().getGameDir().resolve("logs").resolve("ainakama-usage.csv");
 		UsageLog usage = ai == null ? new UsageLog(logFile) : ai.usage();
+		PlanParser parser = new PlanParser(Inv::itemExists, SKILLS::knows);
+		library = new Library(dir.resolve("ainakama"));
+		library.loadBlueprints();
+		library.loadSkills(SKILLS, parser);
 		// 上限が変わっていなければ今日の回数を引き継ぐ（読み直しで回数がリセットされないように）
 		CallBudget budget = ai != null && config != null
 			&& config.dailyCallLimit == cfg.dailyCallLimit && config.cooldownSeconds == cfg.cooldownSeconds
@@ -36,7 +43,7 @@ public final class ModServices {
 		ai = new AiService(
 			new HttpLlmClient(cfg),
 			budget,
-			new PlanParser(Inv::itemExists),
+			parser,
 			usage,
 			cfg.model,
 			System::currentTimeMillis);
@@ -50,6 +57,18 @@ public final class ModServices {
 			reload();
 		}
 		return ai;
+	}
+
+	/** 覚えた技と決まりの帳面（仲間全員で共有）。 */
+	public static SkillBook skills() {
+		return SKILLS;
+	}
+
+	public static Library library() {
+		if (library == null) {
+			reload();
+		}
+		return library;
 	}
 
 	public static AiConfig config() {

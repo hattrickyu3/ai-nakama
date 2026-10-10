@@ -13,15 +13,24 @@ public sealed interface Place {
 		}
 	}
 
+	/** プレイヤーの足元。 */
 	record NearPlayer() implements Place {
 		public String describe() {
 			return "player";
 		}
 	}
 
-	record Here() implements Place {
+	/** プレイヤーが見ているブロックのところ（「ここ」）。何も見ていなければプレイヤーの足元。 */
+	record Looking() implements Place {
 		public String describe() {
 			return "here";
+		}
+	}
+
+	/** 仲間が今いる場所。 */
+	record Self() implements Place {
+		public String describe() {
+			return "self";
 		}
 	}
 
@@ -31,7 +40,17 @@ public sealed interface Place {
 		}
 	}
 
-	/** "home" "拠点" "player" "12 64 -30" などを読む。読めなければ空。 */
+	/**
+	 * 建物の基準点そのもの。整地して建てる場所を一度決めたあと、やり直しても同じ場所に建てるために使う。
+	 * （Coords は「このあたり」で、建てる前にまわりから平らな場所を選び直す）
+	 */
+	record Exact(int x, int y, int z) implements Place {
+		public String describe() {
+			return x + " " + y + " " + z;
+		}
+	}
+
+	/** "home" "拠点" "player" "here" "12 64 -30" などを読む。読めなければ空。 */
 	static Optional<Place> parse(String raw) {
 		if (raw == null) {
 			return Optional.empty();
@@ -44,8 +63,11 @@ public sealed interface Place {
 			case "player", "プレイヤー", "あなた", "you" -> {
 				return Optional.of(new NearPlayer());
 			}
-			case "here", "ここ", "self", "" -> {
-				return Optional.of(new Here());
+			case "here", "ここ", "そこ", "look", "looking", "" -> {
+				return Optional.of(new Looking());
+			}
+			case "self", "自分", "me" -> {
+				return Optional.of(new Self());
 			}
 			default -> {
 				return parseCoords(s);

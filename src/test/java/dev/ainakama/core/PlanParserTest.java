@@ -60,7 +60,7 @@ class PlanParserTest {
 		var r = parser.parse("{\"say\":\"\",\"plan\":[{\"do\":\"collect\",\"item\":\"oak_log\",\"count\":500}]}");
 
 		assertFalse(r.ok());
-		assertEquals(new Command.Collect("oak_log", 64), r.plan().commands().get(0));
+		assertEquals(new Command.Collect("oak_log", PlanParser.MAX_COUNT), r.plan().commands().get(0));
 	}
 
 	@Test

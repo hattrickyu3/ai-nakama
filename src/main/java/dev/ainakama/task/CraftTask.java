@@ -3,6 +3,7 @@ package dev.ainakama.task;
 import dev.ainakama.core.Command;
 import dev.ainakama.core.CraftPlanner;
 import dev.ainakama.core.Items;
+import dev.ainakama.core.PlanParser;
 import dev.ainakama.entity.NakamaEntity;
 import dev.ainakama.world.Inv;
 import java.util.ArrayList;
@@ -74,14 +75,12 @@ final class CraftTask implements Task {
 		if (!result.complete()) {
 			List<Command> first = new ArrayList<>();
 			for (var e : result.missing().entrySet()) {
-				String raw = e.getKey();
-				if (raw.equals(Items.ANY_LOG)) {
-					first.add(new Command.Collect("oak_log", e.getValue()));
-				} else if (Items.isCollectable(raw)) {
-					first.add(new Command.Collect(raw, e.getValue()));
-				} else {
-					return new Result.Failed(Items.label(item) + "を作るのに" + Items.label(raw) + "が" + e.getValue() + "個足りない（集め方を知らない）");
+				var collectable = Items.collectableFor(e.getKey());
+				if (collectable.isEmpty()) {
+					return new Result.Failed(Items.label(item) + "を作るのに" + Items.describeKey(e.getKey()) + "が" + e.getValue()
+						+ "個足りない（集め方を知らない。渡してくれたら作れるよ）");
 				}
+				first.add(new Command.Collect(collectable.get(), Math.min(e.getValue(), PlanParser.MAX_COUNT)));
 			}
 			return new Result.Needs(first, Items.label(item) + "の材料が足りない");
 		}

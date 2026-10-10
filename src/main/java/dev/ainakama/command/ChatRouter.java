@@ -10,11 +10,12 @@ import net.minecraft.server.level.ServerPlayer;
 
 /**
  * チャットの言葉を、呼びかけられた仲間に届ける。
- * 「@ミナ 小屋を建てて」または「ミナ、小屋を建てて」の形で呼びかける。「@みんな」で近くの全員。
+ * 「ミナ、小屋を建てて」「ミナ小屋を建てて」「@ミナ 小屋を建てて」のように、名前で始めて呼びかける。
+ * 「みんな」「皆」「全員」で近くの全員。
  */
 public final class ChatRouter {
 	private static final double SEARCH_RANGE = 128;
-	private static final List<String> EVERYONE = List.of("みんな", "all", "everyone");
+	private static final List<String> EVERYONE = List.of("みんな", "皆", "全員", "all", "everyone");
 
 	/** 仲間の名前のあとに来てよい区切り。 */
 	private static final String SEPARATORS = " 　、,，:：!！";
@@ -49,7 +50,7 @@ public final class ChatRouter {
 		}
 	}
 
-	/** body が name で始まり、その後に区切りがあれば、残りの言葉を返す。@付きなら区切りなしでもよい。 */
+	/** body が name で始まっていれば、そのあとの言葉を返す。 */
 	static Optional<String> afterName(String body, String name, boolean at) {
 		if (name.isBlank() || !body.toLowerCase(Locale.ROOT).startsWith(name.toLowerCase(Locale.ROOT))) {
 			return Optional.empty();
@@ -58,10 +59,7 @@ public final class ChatRouter {
 		if (rest.isEmpty()) {
 			return Optional.empty();
 		}
-		boolean separated = SEPARATORS.indexOf(rest.charAt(0)) >= 0;
-		if (!separated && !at) {
-			return Optional.empty();
-		}
+		// 「ミナ石を掘って」のように、区切りなしで名前に続けて話しかけてもよい
 		String message = rest.replaceFirst("^[" + SEPARATORS + "]+", "").strip();
 		return message.isEmpty() ? Optional.empty() : Optional.of(message);
 	}

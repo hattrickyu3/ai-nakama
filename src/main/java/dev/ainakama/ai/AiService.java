@@ -54,7 +54,12 @@ public final class AiService {
 	 * @param purpose 記録用の目的（message / failure）
 	 */
 	public CompletableFuture<Outcome> ask(UUID caller, String purpose, String system, String user) {
-		CallBudget.Decision decision = budget.tryAcquire(caller, clock.getAsLong());
+		return ask(caller, purpose, system, user, false);
+	}
+
+	/** @param ignoreCooldown 呼ぶ間隔の制限を見ない（失敗の立て直し用）。1日の上限は見る */
+	public CompletableFuture<Outcome> ask(UUID caller, String purpose, String system, String user, boolean ignoreCooldown) {
+		CallBudget.Decision decision = budget.tryAcquire(caller, clock.getAsLong(), ignoreCooldown);
 		if (decision != CallBudget.Decision.OK) {
 			return CompletableFuture.completedFuture(new Outcome.Refused(decision));
 		}

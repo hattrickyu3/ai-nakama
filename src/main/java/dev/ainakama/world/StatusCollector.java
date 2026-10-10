@@ -44,11 +44,13 @@ public final class StatusCollector {
 		String weather = level.isThundering() ? "雷雨" : level.isRaining() ? "雨" : "晴れ";
 		BlockPos pos = nakama.blockPosition();
 		String position;
+		String here = "座標 " + pos.getX() + " " + pos.getY() + " " + pos.getZ();
 		if (nakama.home() == null) {
-			position = "拠点は未登録、高さ" + pos.getY();
+			position = here + "、拠点は未登録";
 		} else {
 			BlockPos h = nakama.home();
-			position = "拠点から" + Status.direction(pos.getX() - h.getX(), pos.getZ() - h.getZ()) + "、高さ" + pos.getY();
+			position = here + "、拠点（" + h.getX() + " " + h.getY() + " " + h.getZ() + "）から"
+				+ Status.direction(pos.getX() - h.getX(), pos.getZ() - h.getZ());
 		}
 		List<String> places = new ArrayList<>();
 		if (nakama.home() != null) {

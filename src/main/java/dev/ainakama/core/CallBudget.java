@@ -32,6 +32,13 @@ public final class CallBudget {
 
 	/** 呼んでよければ回数を数えて OK を返す。 */
 	public synchronized Decision tryAcquire(UUID caller, long nowMillis) {
+		return tryAcquire(caller, nowMillis, false);
+	}
+
+	/**
+	 * @param ignoreCooldown 間隔の制限を見ない（失敗の立て直しは、直前の呼び出しのすぐあとに起きるため）。1日の上限は必ず見る
+	 */
+	public synchronized Decision tryAcquire(UUID caller, long nowMillis, boolean ignoreCooldown) {
 		LocalDate today = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate();
 		if (!today.equals(day)) {
 			day = today;
@@ -41,7 +48,7 @@ public final class CallBudget {
 			return Decision.DAILY_LIMIT;
 		}
 		Long last = lastCall.get(caller);
-		if (last != null && nowMillis - last < cooldownMillis) {
+		if (!ignoreCooldown && last != null && nowMillis - last < cooldownMillis) {
 			return Decision.COOLDOWN;
 		}
 		lastCall.put(caller, nowMillis);

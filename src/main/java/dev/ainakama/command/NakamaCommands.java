@@ -5,6 +5,10 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import dev.ainakama.ModServices;
 import dev.ainakama.ai.UsageLog;
+import dev.ainakama.core.Blueprints;
+import dev.ainakama.core.Command;
+import dev.ainakama.core.SkillBook;
+import dev.ainakama.core.Trigger;
 import dev.ainakama.entity.ModEntities;
 import dev.ainakama.entity.NakamaEntity;
 import java.util.List;
@@ -18,6 +22,7 @@ import net.minecraft.world.entity.EntitySpawnReason;
 /**
  * /nakama コマンド。
  * spawn・home・reload はチートが有効（OP）のときだけ使える。
+ * skills：覚えた技・決まり・設計図の一覧 / forget 名前：それを忘れる
  * spawn [名前]：仲間を出す / home：近くの仲間の拠点をここにする / usage：今日のAIの使用量 / reload：設定の読み直し / list：仲間の一覧
  */
 public final class NakamaCommands {
@@ -38,7 +43,11 @@ public final class NakamaCommands {
 			.then(Commands.literal("home").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)).executes(NakamaCommands::home))
 			.then(Commands.literal("usage").executes(NakamaCommands::usage))
 			.then(Commands.literal("reload").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)).executes(NakamaCommands::reload))
-			.then(Commands.literal("list").executes(NakamaCommands::list)));
+			.then(Commands.literal("list").executes(NakamaCommands::list))
+			.then(Commands.literal("skills").executes(NakamaCommands::skills))
+			.then(Commands.literal("forget")
+				.then(Commands.argument("name", StringArgumentType.greedyString())
+					.executes(ctx -> forget(ctx, StringArgumentType.getString(ctx, "name"))))));
 	}
 
 	private static int spawn(CommandContext<CommandSourceStack> ctx, String name) {
@@ -115,6 +124,42 @@ public final class NakamaCommands {
 			ctx.getSource().sendSuccess(() -> Component.literal(text), false);
 		}
 		return found.size();
+	}
+
+	/** 覚えた技・決まり・設計図の一覧。 */
+	private static int skills(CommandContext<CommandSourceStack> ctx) {
+		SkillBook book = ModServices.skills();
+		List<String> lines = new java.util.ArrayList<>();
+		lines.add("【覚えた技】");
+		book.all().forEach(s -> lines.add("・" + s.name() + "： " + describe(s.steps())));
+		lines.add("【決まり】");
+		book.rules().forEach(r -> lines.add("・" + r.when().japanese() + "： " + describe(r.steps())));
+		lines.add("【覚えた設計図】");
+		Blueprints.learned().forEach(b -> lines.add("・" + b.id() + "（" + b.parts().size() + "ブロック）"));
+		lines.add("消すときは /nakama forget 名前");
+		lines.forEach(line -> ctx.getSource().sendSuccess(() -> Component.literal(line), false));
+		return 1;
+	}
+
+	private static String describe(List<Command> steps) {
+		return steps.stream().map(Command::describe).collect(java.util.stream.Collectors.joining(" → "));
+	}
+
+	/** 名前の合う技・設計図・決まり（night などのきっかけ名）を忘れる。 */
+	private static int forget(CommandContext<CommandSourceStack> ctx, String name) {
+		SkillBook book = ModServices.skills();
+		boolean skill = book.forget(name);
+		boolean rule = Trigger.parse(name).map(book::removeRule).orElse(false);
+		boolean blueprint = Blueprints.forget(name);
+		if (skill || rule) {
+			ModServices.library().saveSkills(book);
+		}
+		if (blueprint) {
+			ModServices.library().deleteBlueprint(name);
+		}
+		boolean any = skill || rule || blueprint;
+		ctx.getSource().sendSuccess(() -> Component.literal(any ? "「" + name + "」を忘れました" : "「" + name + "」は覚えていません"), false);
+		return any ? 1 : 0;
 	}
 
 	private static List<NakamaEntity> all(ServerLevel level) {

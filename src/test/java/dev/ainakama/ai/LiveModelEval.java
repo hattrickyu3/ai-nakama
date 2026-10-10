@@ -59,7 +59,7 @@ class LiveModelEval {
 
 		int firstTryOk = 0;
 		for (String req : REQUESTS) {
-			String user = PromptBuilder.userForMessage("ミナ", status, Memory.empty(), req);
+			String user = PromptBuilder.userForMessage("ミナ", status, Memory.empty(), PromptBuilder.Extras.none(), req);
 			long start = System.currentTimeMillis();
 			var out = service.ask(UUID.randomUUID(), "eval", system, user).join();
 			long ms = System.currentTimeMillis() - start;

@@ -5,29 +5,33 @@ import dev.ainakama.core.Items;
 import dev.ainakama.entity.NakamaEntity;
 import dev.ainakama.world.Inv;
 import dev.ainakama.world.Sources;
+import dev.ainakama.world.Terrain;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * 資源を集める。近くで探す → 歩く → 掘る → 持ち物に入れる、を数がそろうまで繰り返す。
- * 道具が要るのに持っていなければ「先に道具を作って」と返す。
+ * ・道具が要るのに持っていなければ「先に道具を作って」と返す
+ * ・地表に見当たらない石や鉱石は、階段状に掘り下げて取りに行く
+ * ・高くて届かない原木は、足場を積んで取る
  */
 final class CollectTask implements Task {
 	private static final int SEARCH_RADIUS = 24;
 	private static final int SEARCH_HEIGHT = 8;
 	private static final double REACH = 4.5;
 	private static final int HOME_PROTECT_RADIUS = 8;
-	private static final int STUCK_TICKS = 120;
-	private static final int TIME_LIMIT_TICKS = 20 * 60 * 5;
+	private static final int STUCK_TICKS = 100;
+	private static final int TIME_LIMIT_TICKS = 20 * 60 * 8;
+	private static final int MAX_DIG_STEPS = 60;
+	/** 真下〜斜め下に立っていて、高さだけが足りないとみなす水平の距離。 */
+	private static final double UNDER_DISTANCE = 2.5;
 
 	private final String item;
 	private final String group;
@@ -35,12 +39,15 @@ final class CollectTask implements Task {
 	private final Predicate<BlockState> matcher;
 	private final Set<BlockPos> skipped = new HashSet<>();
 	private final Walker walker = new Walker(STUCK_TICKS);
+	private final Breaker breaker = new Breaker();
+	private final Scaffold scaffold = new Scaffold();
 
+	private Digger digger;
+	private boolean searchDue;
+	private int digSteps;
 	private int gathered;
 	private int ticks;
 	private BlockPos target;
-	private int breakProgress = -1;
-	private int breakTotal;
 
 	CollectTask(String item, int count) {
 		this.item = item;
@@ -52,29 +59,38 @@ final class CollectTask implements Task {
 	@Override
 	public Result tick(NakamaEntity nakama, ServerLevel level) {
 		if (gathered >= count) {
-			return DONE;
+			return finish(nakama, level, DONE);
 		}
 		if (++ticks > TIME_LIMIT_TICKS) {
-			return new Result.Failed(Items.label(item) + "を集めるのに時間がかかりすぎた（" + gathered + "/" + count + "個）");
+			return finish(nakama, level, failed("を集めるのに時間がかかりすぎた"));
+		}
+		if (digger != null && !searchDue) {
+			// 掘り下げている間は、1段下りるごとにだけ探し直す（毎tick探すと重い）
+			return digFor(nakama, level);
 		}
 		if (target == null || !matcher.test(level.getBlockState(target))) {
-			resetBreaking(nakama, level);
+			breaker.cancel(nakama, level);
+			searchDue = false;
 			target = findNearest(nakama, level);
 			if (target == null) {
-				return new Result.Failed("近くに" + Items.label(item) + "が見つからない（" + gathered + "/" + count + "個）");
+				return digFor(nakama, level);
 			}
+		}
+		if (digger != null) {
+			digger.cancel(nakama, level);
+			digger = null;
 		}
 		BlockState state = level.getBlockState(target);
-		if (state.requiresCorrectToolForDrops() && Inv.bestToolFor(nakama.getInventory(), state).isEmpty()) {
-			String tool = Sources.toolFor(state);
-			if (tool == null) {
-				return new Result.Failed(Items.label(item) + "を掘れる道具がない");
-			}
-			return new Result.Needs(List.of(new Command.Craft(tool, 1)), Items.label(tool) + "がないと掘れない");
+		if (Breaker.lacksTool(nakama, state)) {
+			return needTool(state);
 		}
-		double dist = nakama.getEyePosition().distanceTo(Vec3.atCenterOf(target));
+		Vec3 center = Vec3.atCenterOf(target);
+		double dist = nakama.getEyePosition().distanceTo(center);
 		if (dist > REACH) {
-			resetBreaking(nakama, level);
+			breaker.cancel(nakama, level);
+			if (isRightUnder(nakama, center) && scaffold.raise(nakama, level)) {
+				return RUNNING;
+			}
 			if (!walker.step(nakama, target, 1, 20, dist)) {
 				skipped.add(target);
 				target = null;
@@ -82,52 +98,67 @@ final class CollectTask implements Task {
 			return RUNNING;
 		}
 		nakama.getNavigation().stop();
-		nakama.getLookControl().setLookAt(Vec3.atCenterOf(target));
-		return breakStep(nakama, level, state);
-	}
-
-	private Result breakStep(NakamaEntity nakama, ServerLevel level, BlockState state) {
-		ItemStack tool = Inv.bestToolFor(nakama.getInventory(), state);
-		if (breakProgress < 0) {
-			breakProgress = 0;
-			breakTotal = breakTicks(state, !tool.isEmpty());
-			nakama.setItemSlot(EquipmentSlot.MAINHAND, tool.copyWithCount(1));
-		}
-		breakProgress++;
-		if (breakProgress % 5 == 0) {
-			nakama.swingArm();
-		}
-		level.destroyBlockProgress(nakama.getId(), target, Math.min(9, breakProgress * 10 / breakTotal));
-		if (breakProgress < breakTotal) {
+		List<ItemStack> drops = breaker.tick(nakama, level, target);
+		if (drops == null) {
 			return RUNNING;
 		}
-		List<ItemStack> drops = Block.getDrops(state, level, target, level.getBlockEntity(target), nakama, tool);
-		level.destroyBlock(target, false, nakama);
-		resetBreaking(nakama, level);
 		target = null;
-		boolean full = false;
+		return take(nakama, level, drops);
+	}
+
+	/** 見えるところにないので、掘り下げて探す。掘り下げても意味のないもの（原木など）はここで失敗にする。 */
+	private Result digFor(NakamaEntity nakama, ServerLevel level) {
+		if (!Sources.isUnderground(item)) {
+			return finish(nakama, level, failed("が近くに見つからない"));
+		}
+		if (digger == null) {
+			digger = new Digger();
+		}
+		switch (digger.tick(nakama, level)) {
+			case WORKING -> {
+				List<ItemStack> drops = digger.takeDrops();
+				return drops.isEmpty() ? RUNNING : take(nakama, level, drops);
+			}
+			case STEPPED -> {
+				if (++digSteps > MAX_DIG_STEPS) {
+					return finish(nakama, level, failed("は掘り下げても見つからなかった"));
+				}
+				searchDue = true;
+				return RUNNING;
+			}
+			case NEED_PICKAXE -> {
+				return new Result.Needs(List.of(new Command.Craft("wooden_pickaxe", 1)), "ツルハシがないと掘れない");
+			}
+			default -> {
+				return finish(nakama, level, failed("を掘りに行けない（水や溶岩、空洞に囲まれている）"));
+			}
+		}
+	}
+
+	private Result needTool(BlockState state) {
+		String tool = Sources.toolFor(state);
+		if (tool == null) {
+			return new Result.Failed(Items.label(item) + "を掘れる道具がない");
+		}
+		return new Result.Needs(List.of(new Command.Craft(tool, 1)), Items.label(tool) + "がないと掘れない");
+	}
+
+	private Result take(NakamaEntity nakama, ServerLevel level, List<ItemStack> drops) {
 		for (ItemStack drop : drops) {
 			if (Items.matches(group, Inv.idOf(drop.getItem()))) {
 				gathered += drop.getCount();
 			}
-			ItemStack rest = Inv.add(nakama.getInventory(), drop);
-			if (!rest.isEmpty()) {
-				// 入りきらない分はなくさずに足元に置く
-				Block.popResource(level, nakama.blockPosition(), rest);
-				full = true;
-			}
 		}
-		if (full) {
-			return new Result.Failed("持ち物がいっぱい（「しまって」と言ってね）");
+		if (!Breaker.stash(nakama, level, drops)) {
+			return finish(nakama, level, new Result.Failed("持ち物がいっぱい（「しまって」か「渡して」と言ってね）"));
 		}
-		return gathered >= count ? DONE : RUNNING;
+		return gathered >= count ? finish(nakama, level, DONE) : RUNNING;
 	}
 
-	/** 硬さから掘る時間を決める。正しい道具があれば速い。 */
-	private static int breakTicks(BlockState state, boolean hasTool) {
-		float hardness = state.getBlock().defaultDestroyTime();
-		int ticks = (int) (hardness * (hasTool ? 8 : 15));
-		return Math.max(6, Math.min(60, ticks));
+	private boolean isRightUnder(NakamaEntity nakama, Vec3 center) {
+		double dx = center.x - nakama.getX();
+		double dz = center.z - nakama.getZ();
+		return Math.sqrt(dx * dx + dz * dz) <= UNDER_DISTANCE && center.y > nakama.getEyeY();
 	}
 
 	private BlockPos findNearest(NakamaEntity nakama, ServerLevel level) {
@@ -153,6 +184,10 @@ final class CollectTask implements Task {
 						// 葉っぱのない原木はプレイヤーが置いたものかもしれないので切らない
 						continue;
 					}
+					if (!logs && !Terrain.isExposed(level, p)) {
+						// まわりが全部埋まっているものには手が届かない（掘り下げて探す）
+						continue;
+					}
 					best = p.immutable();
 					bestDist = d;
 				}
@@ -161,16 +196,23 @@ final class CollectTask implements Task {
 		return best;
 	}
 
-	private void resetBreaking(NakamaEntity nakama, ServerLevel level) {
-		if (breakProgress >= 0 && target != null) {
-			level.destroyBlockProgress(nakama.getId(), target, -1);
-		}
-		breakProgress = -1;
+	private Result.Failed failed(String what) {
+		return new Result.Failed(Items.label(item) + what + "（" + gathered + "/" + count + "個）");
+	}
+
+	/** 終わるとき（成功でも失敗でも）、足場を片付けてから結果を返す。 */
+	private Result finish(NakamaEntity nakama, ServerLevel level, Result result) {
+		cancel(nakama, level);
+		return result;
 	}
 
 	@Override
 	public void cancel(NakamaEntity nakama, ServerLevel level) {
-		resetBreaking(nakama, level);
+		breaker.cancel(nakama, level);
+		if (digger != null) {
+			digger.cancel(nakama, level);
+		}
+		scaffold.removeAll(nakama, level);
 	}
 
 	@Override

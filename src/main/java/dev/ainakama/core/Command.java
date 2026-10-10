@@ -45,6 +45,27 @@ public sealed interface Command {
 		}
 	}
 
+	/** プレイヤーに持ち物を渡す。item が null なら道具以外を全部、count が 0 ならあるだけ全部。 */
+	record Give(String item, int count) implements Command {
+		public String describe() {
+			return "give " + (item == null ? "all" : item + (count > 0 ? " " + count : ""));
+		}
+	}
+
+	/** ブロックを1つ置く（扉・松明・作業台など）。 */
+	record PlaceBlock(String item, Place place) implements Command {
+		public String describe() {
+			return "place " + item + " at " + place.describe();
+		}
+	}
+
+	/** 覚えた技を使う。実行の前に、その技の手順に置き換えられる。 */
+	record UseSkill(String name) implements Command {
+		public String describe() {
+			return "skill " + name;
+		}
+	}
+
 	record Store() implements Command {
 		public String describe() {
 			return "store";

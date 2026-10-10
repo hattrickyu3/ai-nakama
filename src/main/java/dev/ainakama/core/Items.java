@@ -123,7 +123,8 @@ public final class Items {
 
 	public static boolean isLog(String id) {
 		String s = id.replace("stripped_", "");
-		return s.endsWith("_log") || s.equals("crimson_stem") || s.equals("warped_stem");
+		return s.endsWith("_log") || s.endsWith("_wood")
+			|| s.equals("crimson_stem") || s.equals("warped_stem") || s.equals("crimson_hyphae") || s.equals("warped_hyphae");
 	}
 
 	/** collect で集めてよいか。原木はどの種類でもよい。 */
@@ -135,8 +136,13 @@ public final class Items {
 		return id.endsWith("_planks");
 	}
 
-	/** id がグループ key（#log / #planks）または同じIDに当てはまるか。 */
+	public static final String ANY_PREFIX = "any:";
+
+	/** id が key（同じID、グループ #log / #planks、または any:a|b のどれか）に当てはまるか。 */
 	public static boolean matches(String key, String id) {
+		if (key.startsWith(ANY_PREFIX)) {
+			return options(key).contains(id);
+		}
 		return switch (key) {
 			case ANY_LOG -> isLog(id);
 			case ANY_PLANKS -> isPlanks(id);
@@ -144,14 +150,62 @@ public final class Items {
 		};
 	}
 
+	/** key が指すIDの候補。any:a|b なら [a, b]、IDそのものならそれ1つ、グループなら空。 */
+	public static java.util.List<String> options(String key) {
+		if (key.startsWith(ANY_PREFIX)) {
+			return java.util.List.of(key.substring(ANY_PREFIX.length()).split("\\|"));
+		}
+		return key.startsWith("#") ? java.util.List.of() : java.util.List.of(key);
+	}
+
+	/**
+	 * 候補のID一覧から、材料のキーを作る。全部が板材なら #planks、全部が原木なら #log、1つならそのID、それ以外は any:a|b。
+	 */
+	public static String keyFor(java.util.List<String> ids) {
+		if (ids.size() == 1) {
+			return ids.get(0);
+		}
+		if (ids.stream().allMatch(Items::isPlanks)) {
+			return ANY_PLANKS;
+		}
+		if (ids.stream().allMatch(Items::isLog)) {
+			return ANY_LOG;
+		}
+		return ANY_PREFIX + String.join("|", ids);
+	}
+
+	/** 仲間がすぐ用意できる材料か（レシピの候補を選ぶときの目安）。 */
+	public static boolean isEasy(String id) {
+		return isLog(id) || isPlanks(id) || COLLECTABLE.contains(id)
+			|| id.equals("stick") || id.equals("crafting_table") || id.equals("charcoal");
+	}
+
+	/** 足りない材料 key を集めるなら、何を collect すればよいか。集められないものなら空。 */
+	public static Optional<String> collectableFor(String key) {
+		if (ANY_LOG.equals(key)) {
+			return Optional.of("oak_log");
+		}
+		return options(key).stream().filter(Items::isCollectable).findFirst();
+	}
+
+	public static String describeKey(String key) {
+		if (ANY_LOG.equals(key)) {
+			return "原木";
+		}
+		if (ANY_PLANKS.equals(key)) {
+			return "板材";
+		}
+		java.util.List<String> opts = options(key);
+		return opts.size() == 1 ? label(opts.get(0)) : label(opts.get(0)) + "など";
+	}
+
 	/** 原木から作れる板材のID。oak_log → oak_planks、crimson_stem → crimson_planks。 */
 	public static String planksFor(String logId) {
 		String s = logId.replace("stripped_", "");
-		if (s.endsWith("_log")) {
-			return s.substring(0, s.length() - "_log".length()) + "_planks";
-		}
-		if (s.endsWith("_stem")) {
-			return s.substring(0, s.length() - "_stem".length()) + "_planks";
+		for (String suffix : new String[] {"_log", "_wood", "_stem", "_hyphae"}) {
+			if (s.endsWith(suffix)) {
+				return s.substring(0, s.length() - suffix.length()) + "_planks";
+			}
 		}
 		return "oak_planks";
 	}

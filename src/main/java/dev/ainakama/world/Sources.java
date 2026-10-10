@@ -44,6 +44,13 @@ public final class Sources {
 		return s -> ids.contains(BuiltInRegistries.BLOCK.getKey(s.getBlock()).getPath());
 	}
 
+	/** 地表になければ、掘り下げて探す価値があるもの。 */
+	private static final Set<String> UNDERGROUND = Set.of("cobblestone", "coal", "raw_iron", "gravel");
+
+	public static boolean isUnderground(String item) {
+		return UNDERGROUND.contains(item);
+	}
+
 	private static final int LEAVES_SEARCH_RADIUS = 2;
 	private static final int LEAVES_SEARCH_UP = 7;
 

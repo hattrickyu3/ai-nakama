@@ -7,63 +7,204 @@ import dev.ainakama.core.Place;
 import dev.ainakama.core.Recipes;
 import dev.ainakama.entity.NakamaEntity;
 import dev.ainakama.world.Inv;
+import dev.ainakama.world.Placer;
+import dev.ainakama.world.SitePlanner;
+import dev.ainakama.world.Terrain;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.phys.Vec3;
-import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 /**
- * 設計図どおりにブロックを置く。
- * 始める前に材料を数え、足りなければ「先にクラフトして」と返す（クラフト側が原木集めまで面倒を見る）。
- * すでに何かがある場所には置かず、壊しもしない。
+ * 設計図どおりに建てる。順番は「場所を選ぶ → 材料をそろえる → 邪魔なものをどける → 足元を埋める → 置く → 足場を片付ける」。
+ * どけるのは自然のもの（土・石・草・木など）だけ。プレイヤーが置いたらしいブロックは壊さず、そこは飛ばす。
  */
 final class BuildTask implements Task {
-	/** 指定した場所から少しずらして建てる（プレイヤーや拠点の目印を埋めないため）。 */
-	private static final int OFFSET = 2;
 	private static final double REACH = 4.5;
 	private static final int TICKS_PER_BLOCK = 4;
 	private static final int STUCK_TICKS = 160;
 	private static final int BLOCKED_GIVE_UP_TICKS = 100;
+	/** 足元を埋める深さの上限。これより深い穴や崖は埋めない。 */
+	private static final int MAX_FILL_DEPTH = 3;
+	private static final int FILLER_BATCH = 16;
+
+	private enum Stage {
+		CLEAR, FOUNDATION, PLACE
+	}
 
 	private final Blueprint blueprint;
 	private final BlockPos anchor;
+	private final boolean exact;
 	private final Walker walker = new Walker(STUCK_TICKS);
+	private final Breaker breaker = new Breaker();
+	private final Scaffold scaffold = new Scaffold();
+
 	private BlockPos origin;
+	private Stage stage = Stage.CLEAR;
+	private List<BlockPos> work;
 	private int index;
 	private int wait;
 	private int placed;
 	private int skipped;
 	private int blockedTicks;
 
-	BuildTask(Blueprint blueprint, BlockPos anchor) {
+	/** @param exact anchor が建物の基準点そのものか（やり直しのとき）。false なら anchor のまわりで場所を選ぶ */
+	BuildTask(Blueprint blueprint, BlockPos anchor, boolean exact) {
 		this.blueprint = blueprint;
 		this.anchor = anchor;
+		this.exact = exact;
 	}
 
 	@Override
 	public Result tick(NakamaEntity nakama, ServerLevel level) {
 		if (origin == null) {
-			// 高さは指定した場所（拠点やプレイヤーの足元）にそろえる。
-			// 途中で材料を取りに行って建て直すときも同じ位置になるよう、地形からは計算しない
-			origin = anchor.offset(OFFSET, 0, OFFSET);
+			int[] size = blueprint.size();
+			origin = exact ? anchor : SitePlanner.choose(level, anchor, nakama.home(), size[0], size[1], size[2]);
 			Result missing = checkMaterials(nakama, level);
 			if (missing != null) {
 				return missing;
 			}
 		}
+		Result result = switch (stage) {
+			case CLEAR -> clearStep(nakama, level);
+			case FOUNDATION -> foundationStep(nakama, level);
+			case PLACE -> placeStage(nakama, level);
+		};
+		if (result != RUNNING) {
+			cleanUp(nakama, level);
+		}
+		return result;
+	}
+
+	// ---- 邪魔なものをどける ----
+
+	private Result clearStep(NakamaEntity nakama, ServerLevel level) {
+		if (work == null) {
+			work = volumeTopDown();
+			index = 0;
+		}
+		while (index < work.size()) {
+			BlockPos pos = work.get(index);
+			BlockState state = level.getBlockState(pos);
+			if (Terrain.isOpen(state) || !Terrain.isNaturalClearable(level, pos, state) || isAlreadyBuilt(pos, state)) {
+				index++;
+				continue;
+			}
+			if (Breaker.lacksTool(nakama, state) && Terrain.isGround(state)) {
+				return new Result.Needs(List.of(new Command.Craft("wooden_pickaxe", 1)), "石をどけるのにツルハシが要る");
+			}
+			Result approach = approach(nakama, level, pos);
+			if (approach != null) {
+				return approach;
+			}
+			List<ItemStack> drops = breaker.tick(nakama, level, pos);
+			if (drops != null) {
+				Breaker.stash(nakama, level, drops);
+				index++;
+			}
+			return RUNNING;
+		}
+		next(Stage.FOUNDATION);
+		return RUNNING;
+	}
+
+	/** 設計図どおりのブロックがもう置いてあるマスか（やり直しのとき、土や石でできた部分を壊さないため）。 */
+	private boolean isAlreadyBuilt(BlockPos pos, BlockState state) {
+		String id = Terrain.idOf(state);
+		for (Blueprint.Part part : blueprint.parts()) {
+			if (origin.offset(part.dx(), part.dy(), part.dz()).equals(pos)) {
+				return Items.matches(part.block(), id);
+			}
+		}
+		return false;
+	}
+
+	/** 建物が入る範囲のマスを、上の段から順に並べる（上から掘ると、砂や砂利が落ちてきても片付けやすい）。 */
+	private List<BlockPos> volumeTopDown() {
+		int[] size = blueprint.size();
+		List<BlockPos> cells = new ArrayList<>();
+		for (int y = size[1] - 1; y >= 0; y--) {
+			for (int x = 0; x < size[0]; x++) {
+				for (int z = 0; z < size[2]; z++) {
+					cells.add(origin.offset(x, y, z));
+				}
+			}
+		}
+		return cells;
+	}
+
+	// ---- 足元を埋める ----
+
+	private Result foundationStep(NakamaEntity nakama, ServerLevel level) {
+		if (work == null) {
+			work = gaps(level);
+			index = 0;
+		}
+		while (index < work.size()) {
+			BlockPos pos = work.get(index);
+			if (!level.getBlockState(pos).canBeReplaced()) {
+				index++;
+				continue;
+			}
+			int slot = Scaffold.fillerSlot(nakama);
+			if (slot < 0) {
+				int left = Math.min(FILLER_BATCH, work.size() - index);
+				return new Result.Needs(List.of(new Command.Collect("dirt", left)), "足元を埋める土が足りない");
+			}
+			Result approach = approach(nakama, level, pos);
+			if (approach != null) {
+				return approach;
+			}
+			if (--wait > 0) {
+				return RUNNING;
+			}
+			wait = TICKS_PER_BLOCK;
+			ItemStack stack = nakama.getInventory().getItem(slot);
+			if (Placer.place(level, pos, stack, Direction.NORTH)) {
+				nakama.getInventory().setChanged();
+				nakama.swingArm();
+			}
+			index++;
+			return RUNNING;
+		}
+		next(Stage.PLACE);
+		return RUNNING;
+	}
+
+	/** 床の下の、空いているマス（下から順）。深すぎる穴は対象にしない。 */
+	private List<BlockPos> gaps(ServerLevel level) {
+		int[] size = blueprint.size();
+		List<BlockPos> cells = new ArrayList<>();
+		for (int depth = MAX_FILL_DEPTH; depth >= 1; depth--) {
+			for (int x = 0; x < size[0]; x++) {
+				for (int z = 0; z < size[2]; z++) {
+					BlockPos pos = origin.offset(x, -depth, z);
+					boolean bottomSolid = !level.getBlockState(origin.offset(x, -MAX_FILL_DEPTH - 1, z)).canBeReplaced();
+					if (level.getBlockState(pos).canBeReplaced() && (bottomSolid || depth == 1)) {
+						cells.add(pos);
+					}
+				}
+			}
+		}
+		return cells;
+	}
+
+	// ---- 置く ----
+
+	private Result placeStage(NakamaEntity nakama, ServerLevel level) {
 		while (index < blueprint.parts().size()) {
 			Blueprint.Part part = blueprint.parts().get(index);
 			BlockPos pos = origin.offset(part.dx(), part.dy(), part.dz());
-			if (!canPlaceAt(level.getBlockState(pos))) {
+			if (!Terrain.isOpen(level.getBlockState(pos))) {
 				// 何かがあるところ・水や溶岩のところは飛ばす（同じものが置いてあれば完成扱い）
 				index++;
 				skipped++;
@@ -71,26 +212,23 @@ final class BuildTask implements Task {
 			}
 			return placeStep(nakama, level, part, pos);
 		}
-		nakama.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+		nakama.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
 		return DONE;
 	}
 
 	private Result placeStep(NakamaEntity nakama, ServerLevel level, Blueprint.Part part, BlockPos pos) {
-		double dist = nakama.getEyePosition().distanceTo(Vec3.atCenterOf(pos));
-		if (dist > REACH) {
-			if (!walker.step(nakama, pos, 2, 20, dist)) {
-				return new Result.Failed(blueprint.japaneseName() + "の建てる場所に近づけない");
-			}
-			return RUNNING;
+		Result approach = approach(nakama, level, pos);
+		if (approach != null) {
+			return approach;
 		}
-		nakama.getNavigation().stop();
 		if (--wait > 0) {
 			return RUNNING;
 		}
 		wait = TICKS_PER_BLOCK;
 		if (nakama.getBoundingBox().intersects(new AABB(pos))) {
-			// 自分が立っている場所には置けないので、少し下がる
-			nakama.getNavigation().moveTo(origin.getX() - 2, origin.getY(), origin.getZ() - 2, NakamaEntity.WALK_SPEED);
+			// 自分が立っている場所には置けないので、建物の外へよける
+			Terrain.standableNear(level, origin.offset(-2, 0, -2)).ifPresent(p ->
+				nakama.getNavigation().moveTo(p.getX() + 0.5, p.getY(), p.getZ() + 0.5, NakamaEntity.WALK_SPEED));
 			return RUNNING;
 		}
 		if (!level.getEntitiesOfClass(LivingEntity.class, new AABB(pos), e -> e != nakama && e.isAlive()).isEmpty()) {
@@ -103,40 +241,90 @@ final class BuildTask implements Task {
 			return RUNNING;
 		}
 		blockedTicks = 0;
-		int slot = Inv.findSlot(nakama.getInventory(), part.block());
-		if (slot < 0) {
-			// 途中で材料がなくなった：もう一度数え直す
-			Result missing = checkMaterials(nakama, level);
-			return missing != null ? missing : RUNNING;
+		ItemStack stack = ItemStack.EMPTY;
+		if (!part.free()) {
+			int slot = Inv.findSlot(nakama.getInventory(), part.block());
+			if (slot < 0) {
+				// 途中で材料がなくなった：もう一度数え直す
+				Result missing = checkMaterials(nakama, level);
+				return missing != null ? missing : RUNNING;
+			}
+			stack = nakama.getInventory().getItem(slot);
+			nakama.setItemSlot(EquipmentSlot.MAINHAND, stack.copyWithCount(1));
 		}
-		ItemStack stack = nakama.getInventory().getItem(slot);
-		if (!(stack.getItem() instanceof BlockItem blockItem)) {
-			return new Result.Failed(Items.label(Inv.idOf(stack.getItem())) + "はブロックとして置けない");
-		}
-		nakama.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, stack.copyWithCount(1));
-		nakama.getLookControl().setLookAt(Vec3.atCenterOf(pos));
-		BlockState state = Block.updateFromNeighbourShapes(blockItem.getBlock().defaultBlockState(), level, pos);
-		if (!level.setBlock(pos, state, Block.UPDATE_ALL)) {
-			// 置けなかった（保護されている場所など）ので、材料は減らさずに飛ばす
-			index++;
+		if (put(nakama, level, part, pos, stack)) {
+			nakama.getInventory().setChanged();
+			nakama.swingArm();
+			placed++;
+		} else {
 			skipped++;
-			return RUNNING;
 		}
-		level.playSound(null, pos, state.getSoundType().getPlaceSound(), SoundSource.BLOCKS, 1.0F, 1.0F);
-		nakama.swingArm();
-		stack.shrink(1);
-		nakama.getInventory().setChanged();
-		placed++;
 		index++;
 		return RUNNING;
 	}
 
+	private static boolean put(NakamaEntity nakama, ServerLevel level, Blueprint.Part part, BlockPos pos, ItemStack stack) {
+		if (part.state() != null) {
+			var state = Placer.read(level, part.state());
+			if (state.isEmpty() || !Placer.placeExact(level, pos, state.get())) {
+				return false;
+			}
+			stack.shrink(1);
+			return true;
+		}
+		Direction facing = Direction.getApproximateNearest(pos.getX() + 0.5 - nakama.getX(), 0, pos.getZ() + 0.5 - nakama.getZ());
+		return Placer.place(level, pos, stack, facing);
+	}
+
+	// ---- 共通 ----
+
+	/**
+	 * pos に手が届くところまで近づく。届いていれば null を返す。
+	 * 高さだけが足りないときは足場を積む。足場の材料がなければ先に土を集める。
+	 */
+	private Result approach(NakamaEntity nakama, ServerLevel level, BlockPos pos) {
+		Vec3 center = Vec3.atCenterOf(pos);
+		double dist = nakama.getEyePosition().distanceTo(center);
+		if (dist <= REACH) {
+			nakama.getNavigation().stop();
+			return null;
+		}
+		breaker.cancel(nakama, level);
+		double dx = center.x - nakama.getX();
+		double dz = center.z - nakama.getZ();
+		boolean highAbove = Math.sqrt(dx * dx + dz * dz) <= 3.0 && center.y > nakama.getEyeY();
+		if (highAbove) {
+			if (scaffold.raise(nakama, level)) {
+				return RUNNING;
+			}
+			if (!Scaffold.hasFiller(nakama)) {
+				return new Result.Needs(List.of(new Command.Collect("dirt", FILLER_BATCH)), "高いところに届く足場の土が足りない");
+			}
+		}
+		if (!walker.step(nakama, pos, 2, 20, dist)) {
+			// どうしても近づけない1マスは飛ばして先へ進む
+			index++;
+			skipped++;
+		}
+		return RUNNING;
+	}
+
+	private void next(Stage nextStage) {
+		stage = nextStage;
+		work = null;
+		index = 0;
+	}
+
 	/** まだ置いていない部分に必要な材料と持ち物を比べる。足りなければ Needs、そろっていれば null。 */
 	private Result checkMaterials(NakamaEntity nakama, ServerLevel level) {
-		Map<String, Integer> need = new java.util.LinkedHashMap<>();
-		for (int i = index; i < blueprint.parts().size(); i++) {
+		Map<String, Integer> need = new LinkedHashMap<>();
+		int from = stage == Stage.PLACE ? index : 0;
+		for (int i = from; i < blueprint.parts().size(); i++) {
 			Blueprint.Part part = blueprint.parts().get(i);
-			if (canPlaceAt(level.getBlockState(origin.offset(part.dx(), part.dy(), part.dz())))) {
+			BlockPos pos = origin.offset(part.dx(), part.dy(), part.dz());
+			BlockState there = level.getBlockState(pos);
+			boolean willBeFree = Terrain.isOpen(there) || Terrain.isNaturalClearable(level, pos, there);
+			if (!part.free() && willBeFree) {
 				need.merge(part.block(), 1, Integer::sum);
 			}
 		}
@@ -148,26 +336,42 @@ final class BuildTask implements Task {
 				continue;
 			}
 			String concrete = e.getKey().equals(Items.ANY_PLANKS) ? "oak_planks" : e.getKey();
-			if (!Recipes.canCraft(concrete)) {
-				return new Result.Failed(blueprint.japaneseName() + "の材料（" + Items.label(concrete) + "）が" + deficit + "個足りない");
+			if (Items.isCollectable(concrete)) {
+				first.add(new Command.Collect(concrete, deficit));
+			} else if (Recipes.canCraft(concrete)) {
+				first.add(new Command.Craft(concrete, deficit));
+			} else {
+				return new Result.Failed(blueprint.japaneseName() + "の材料（" + Items.label(concrete) + "）が" + deficit + "個足りない。渡してくれたら建てられるよ");
 			}
-			first.add(new Command.Craft(concrete, deficit));
 		}
 		return first.isEmpty() ? null : new Result.Needs(first, blueprint.japaneseName() + "の材料が足りない");
 	}
 
-	/** 草や空気のところには置く。水・溶岩・ほかのブロックがあるところには置かない。 */
-	private static boolean canPlaceAt(BlockState there) {
-		return there.canBeReplaced() && there.getFluidState().isEmpty();
+	private void cleanUp(NakamaEntity nakama, ServerLevel level) {
+		breaker.cancel(nakama, level);
+		scaffold.removeAll(nakama, level);
+	}
+
+	@Override
+	public void cancel(NakamaEntity nakama, ServerLevel level) {
+		cleanUp(nakama, level);
 	}
 
 	@Override
 	public Command pinned(Command original) {
-		return new Command.Build(blueprint.id(), new Place.Coords(anchor.getX(), anchor.getY(), anchor.getZ()));
+		BlockPos p = origin != null ? origin : anchor;
+		return origin != null || exact
+			? new Command.Build(blueprint.id(), new Place.Exact(p.getX(), p.getY(), p.getZ()))
+			: original;
 	}
 
 	@Override
 	public String describe() {
-		return blueprint.japaneseName() + "を建てる（" + placed + "/" + (blueprint.parts().size() - skipped) + "）";
+		String what = switch (stage) {
+			case CLEAR -> "の場所を整えている";
+			case FOUNDATION -> "の足元を埋めている";
+			case PLACE -> "を建てている（" + placed + "/" + (blueprint.parts().size() - skipped) + "）";
+		};
+		return blueprint.japaneseName() + what;
 	}
 }

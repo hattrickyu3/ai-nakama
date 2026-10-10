@@ -1,6 +1,7 @@
 package dev.ainakama.task;
 
 import dev.ainakama.entity.NakamaEntity;
+import dev.ainakama.world.Terrain;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
@@ -27,9 +28,18 @@ final class MoveToTask implements Task {
 			nakama.getNavigation().stop();
 			return DONE;
 		}
-		return walker.step(nakama, target, 1, REPATH_TICKS, dist)
-			? RUNNING
-			: new Result.Failed(label + " にたどり着けない");
+		if (walker.step(nakama, target, 1, REPATH_TICKS, dist)) {
+			return RUNNING;
+		}
+		// 歩いて行けないとき（川の向こう・崖の上など）は、ペットがそばに移るのと同じように移動する
+		var spot = level.isLoaded(target) ? Terrain.standableNear(level, target) : java.util.Optional.<BlockPos>empty();
+		if (spot.isEmpty()) {
+			return new Result.Failed(label + " にたどり着けない（遠すぎるか、立てる場所がない）");
+		}
+		BlockPos p = spot.get();
+		nakama.getNavigation().stop();
+		nakama.snapTo(p.getX() + 0.5, p.getY(), p.getZ() + 0.5, nakama.getYRot(), nakama.getXRot());
+		return DONE;
 	}
 
 	@Override

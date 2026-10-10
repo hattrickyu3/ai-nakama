@@ -1,6 +1,7 @@
 package dev.ainakama.task;
 
 import dev.ainakama.entity.NakamaEntity;
+import dev.ainakama.world.Terrain;
 import net.minecraft.core.BlockPos;
 
 /**
@@ -9,6 +10,9 @@ import net.minecraft.core.BlockPos;
  */
 final class Walker {
 	private static final double PROGRESS_EPSILON = 0.5;
+	/** これより遠い目的地は、一度に道を探せないので、途中の地点を目指して少しずつ進む。 */
+	private static final double LONG_DISTANCE = 40;
+	private static final double WAYPOINT_DISTANCE = 28;
 
 	private final int stuckTicks;
 	private double bestDistance = Double.MAX_VALUE;
@@ -18,6 +22,14 @@ final class Walker {
 
 	Walker(int stuckTicks) {
 		this.stuckTicks = stuckTicks;
+	}
+
+	/** 目的地の方向へ WAYPOINT_DISTANCE だけ進んだ、地面の上の地点。 */
+	private static BlockPos waypoint(NakamaEntity nakama, BlockPos target, double distance) {
+		double f = WAYPOINT_DISTANCE / distance;
+		int x = (int) Math.floor(nakama.getX() + (target.getX() + 0.5 - nakama.getX()) * f);
+		int z = (int) Math.floor(nakama.getZ() + (target.getZ() + 0.5 - nakama.getZ()) * f);
+		return new BlockPos(x, Terrain.surfaceY(nakama.level(), x, z, nakama.blockPosition().getY()), z);
 	}
 
 	/** @return まだ見込みがあれば true。たどり着けないと判断したら false */
@@ -36,7 +48,8 @@ final class Walker {
 		}
 		if (--repathCooldown <= 0) {
 			repathCooldown = repathTicks;
-			nakama.getNavigation().moveTo(target.getX() + 0.5, target.getY(), target.getZ() + 0.5, reachRange, NakamaEntity.WALK_SPEED);
+			BlockPos goal = distance > LONG_DISTANCE ? waypoint(nakama, target, distance) : target;
+			nakama.getNavigation().moveTo(goal.getX() + 0.5, goal.getY(), goal.getZ() + 0.5, reachRange, NakamaEntity.WALK_SPEED);
 		}
 		return true;
 	}

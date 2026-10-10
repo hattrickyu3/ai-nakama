@@ -1,7 +1,8 @@
 package dev.ainakama.task;
 
-import dev.ainakama.core.Blueprint;
+import dev.ainakama.core.Blueprints;
 import dev.ainakama.core.Command;
+import dev.ainakama.core.Place;
 import dev.ainakama.entity.NakamaEntity;
 import dev.ainakama.world.Places;
 import net.minecraft.server.level.ServerLevel;
@@ -19,17 +20,25 @@ public final class Tasks {
 			case Command.Remember r -> instant("覚える", () -> nakama.remember(r.note()));
 			case Command.MoveTo m -> Places.resolve(m.place(), nakama, level)
 				.<Task>map(pos -> new MoveToTask(pos, m.place().describe()))
-				.orElseGet(() -> failing(m.place() instanceof dev.ainakama.core.Place.Home
+				.orElseGet(() -> failing(m.place() instanceof Place.Home
 					? "拠点がまだ決まっていない（「ここを拠点にして」と言ってね）"
 					: "行き先が見つからない"));
 			case Command.Collect c -> new CollectTask(c.item(), c.count());
 			case Command.Craft c -> new CraftTask(c.item(), c.count());
 			case Command.Build b -> {
-				Blueprint bp = Blueprint.find(b.blueprint()).orElseThrow();
+				var bp = Blueprints.find(b.blueprint());
+				if (bp.isEmpty()) {
+					yield failing("「" + b.blueprint() + "」という設計図を覚えていない");
+				}
 				yield Places.resolve(b.place(), nakama, level)
-					.<Task>map(pos -> new BuildTask(bp, pos))
+					.<Task>map(pos -> new BuildTask(bp.get(), pos, b.place() instanceof Place.Exact))
 					.orElseGet(() -> failing("建てる場所が決まらない（拠点が未登録かも）"));
 			}
+			case Command.Give g -> new GiveTask(g.item(), g.count());
+			case Command.PlaceBlock p -> Places.resolve(p.place(), nakama, level)
+				.<Task>map(pos -> new PlaceTask(p.item(), pos))
+				.orElseGet(() -> failing("置く場所が決まらない"));
+			case Command.UseSkill u -> failing("「" + u.name() + "」という技を覚えていない");
 			case Command.Store s -> new StoreTask();
 		};
 	}

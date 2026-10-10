@@ -1,22 +1,13 @@
 package dev.ainakama.entity;
 
 import com.mojang.serialization.Codec;
-import dev.ainakama.AiNakama;
 import dev.ainakama.ModServices;
-import dev.ainakama.ai.AiService;
-import dev.ainakama.core.CallBudget;
 import dev.ainakama.core.Command;
-import dev.ainakama.core.Items;
 import dev.ainakama.core.Memory;
-import dev.ainakama.core.Plan;
-import dev.ainakama.core.PromptBuilder;
-import dev.ainakama.core.QuickCommands;
-import dev.ainakama.core.Status;
+import dev.ainakama.core.Trigger;
 import dev.ainakama.task.TaskRunner;
-import dev.ainakama.world.Inv;
-import dev.ainakama.world.StatusCollector;
+import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -27,6 +18,7 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.Mob;
@@ -40,35 +32,32 @@ import net.minecraft.world.entity.npc.InventoryCarrier;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.pathfinder.PathType;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import org.jspecify.annotations.Nullable;
 
 /**
- * AIの仲間（村人の見た目）。
- * プレイヤーの言葉を受け取り、決まった言い方ならそのまま、それ以外はAIに計画を聞いて、TaskRunner で実行する。
- * AIを呼ぶのは「話しかけられたとき」と「プログラムで直せない失敗をしたとき」だけ。
+ * AIの仲間（村人の見た目）。体（持ち物・移動・保存）を受け持ち、考える部分は {@link NakamaMind} に任せる。
+ * AIを呼ぶのは「決まった言い方でも覚えた技でもない言葉で話しかけられたとき」と「プログラムで直せない失敗をしたとき」だけ。
  */
 public class NakamaEntity extends PathfinderMob implements InventoryCarrier, TaskRunner.Listener {
 	public static final String DEFAULT_NAME = "ミナ";
 	public static final double WALK_SPEED = 0.6;
 	private static final int INVENTORY_SIZE = 27;
 	private static final int REGEN_INTERVAL = 80;
-	/** 1回の話しかけのあと、失敗してAIに立て直しを頼める回数。これを超えたらプレイヤーに任せる。 */
-	private static final int MAX_AUTO_REPLANS = 2;
 	private static final String THINKING_SUFFIX = "（考え中…）";
 
 	private final SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE);
 	private final TaskRunner runner = new TaskRunner();
+	private final NakamaMind mind = new NakamaMind(this);
+	private final TriggerWatch triggers = new TriggerWatch();
 	private Memory memory = Memory.empty();
 	private @Nullable BlockPos home;
 	private @Nullable UUID lastSpeaker;
 	private String baseName = DEFAULT_NAME;
 	private String personality = "";
 	private boolean thinking;
-	/** 新しい指示のたびに増える番号。AIの返事が届いたとき、もっと新しい指示が出ていれば古い返事は捨てる。 */
-	private int generation;
-	private int autoReplans;
 
 	public NakamaEntity(EntityType<? extends PathfinderMob> type, Level level) {
 		super(type, level);
@@ -77,6 +66,9 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 		this.setCanPickUpLoot(false);
 		// 手に持たせているのは持ち物の見た目用の写しなので、落とさない
 		this.setDropChance(EquipmentSlot.MAINHAND, 0.0F);
+		// 水を避けずに泳いで渡る
+		this.setPathfindingMalus(PathType.WATER, 0.0F);
+		this.getNavigation().setCanFloat(true);
 	}
 
 	public static AttributeSupplier.Builder createAttributes() {
@@ -110,6 +102,12 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 		if (this.tickCount % REGEN_INTERVAL == 0 && this.getHealth() < this.getMaxHealth()) {
 			this.heal(1.0F);
 		}
+		if (this.tickCount % TriggerWatch.POLL_INTERVAL == 0) {
+			List<Trigger> fired = triggers.poll(this, level, runner.isIdle());
+			if (!fired.isEmpty()) {
+				mind.onTriggers(fired, level);
+			}
+		}
 	}
 
 	@Override
@@ -117,128 +115,21 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 		return false;
 	}
 
-	// ---- 話しかけられたとき ----
+	// ---- 話しかけられたとき・実行側からの知らせ ----
 
 	public void onPlayerMessage(ServerPlayer player, String text) {
-		if (!(this.level() instanceof ServerLevel level)) {
-			return;
-		}
-		this.lastSpeaker = player.getUUID();
-		this.autoReplans = 0;
-		this.getLookControl().setLookAt(player);
-
-		var quick = QuickCommands.match(text, Inv::itemExists);
-		if (quick.isPresent()) {
-			generation++;
-			quick.get().special().ifPresent(s -> handleSpecial(s, player));
-			quick.get().plan().ifPresent(p -> applyPlan(p, text, level));
-			return;
-		}
-		if (thinking) {
-			say("ちょっと待ってね、いま考え中…");
-			return;
-		}
-		Status status = StatusCollector.collect(this, level, runner.describeCurrent());
-		String user = PromptBuilder.userForMessage(baseName, status, memory, text);
-		generation++;
-		askAi("message", user, text, level);
-	}
-
-	private void handleSpecial(QuickCommands.Special special, ServerPlayer player) {
-		switch (special) {
-			case SET_HOME -> {
-				this.home = player.blockPosition();
-				say("ここを拠点にするね！");
-				remember("拠点は " + home.getX() + " " + home.getY() + " " + home.getZ());
-			}
-			case SHOW_INVENTORY -> say(inventoryText());
+		if (this.level() instanceof ServerLevel level) {
+			this.lastSpeaker = player.getUUID();
+			this.getLookControl().setLookAt(player);
+			mind.onPlayerMessage(player, text, level);
 		}
 	}
-
-	private String inventoryText() {
-		var counts = Inv.counts(inventory);
-		if (counts.isEmpty()) {
-			return "何も持ってないよ。";
-		}
-		return "持ち物: " + counts.entrySet().stream()
-			.map(e -> Items.label(e.getKey()) + "×" + e.getValue())
-			.collect(Collectors.joining(", "));
-	}
-
-	// ---- AIに聞く ----
-
-	private void askAi(String purpose, String user, @Nullable String playerText, ServerLevel level) {
-		AiService ai = ModServices.ai();
-		thinking = true;
-		refreshName();
-		String system = PromptBuilder.system(baseName, personality.isBlank() ? ModServices.config().defaultPersonality : personality);
-		int askedAt = generation;
-		ai.ask(this.getUUID(), purpose, system, user).whenComplete((outcome, err) ->
-			level.getServer().execute(() -> {
-				thinking = false;
-				if (this.isRemoved()) {
-					return;
-				}
-				refreshName();
-				if (askedAt != generation) {
-					// 考えている間に「止まって」など新しい指示が出たので、古い返事は使わない
-					return;
-				}
-				if (err != null) {
-					AiNakama.LOGGER.warn("AIの返事を受け取れませんでした", err);
-					say("うまく考えられなかった…。");
-					return;
-				}
-				handleOutcome(outcome, playerText, level);
-			}));
-	}
-
-	private void handleOutcome(AiService.Outcome outcome, @Nullable String playerText, ServerLevel level) {
-		switch (outcome) {
-			case AiService.Outcome.Success s -> {
-				if (s.plan().commands().isEmpty() && s.plan().say().isBlank()) {
-					say("ごめん、よくわからなかった…。言い方を変えてみて？");
-					return;
-				}
-				applyPlan(s.plan(), playerText, level);
-			}
-			case AiService.Outcome.Refused r -> say(r.decision() == CallBudget.Decision.DAILY_LIMIT
-				? "今日はもう考え疲れた…。「ついてきて」「木を10本集めて」みたいな決まった言い方なら動けるよ。"
-				: "ちょっとだけ待ってね。");
-			case AiService.Outcome.Failed f -> say(f.reason());
-		}
-	}
-
-	private void applyPlan(Plan plan, @Nullable String playerText, ServerLevel level) {
-		if (!plan.say().isBlank()) {
-			say(plan.say());
-		}
-		if (plan.memo() != null) {
-			remember(plan.memo());
-		}
-		if (playerText != null) {
-			memory = memory.withExchange(playerText, plan.say());
-		}
-		if (!plan.commands().isEmpty()) {
-			runner.replace(plan.commands(), this, level);
-		}
-	}
-
-	// ---- 実行側からの知らせ ----
 
 	@Override
 	public void onTaskFailed(Command command, String reason) {
-		if (!(this.level() instanceof ServerLevel level)) {
-			return;
+		if (this.level() instanceof ServerLevel level) {
+			mind.onTaskFailed(command, reason, level);
 		}
-		if (autoReplans >= MAX_AUTO_REPLANS || thinking) {
-			say("うまくいかない…。" + reason + "。どうしたらいいか教えて？");
-			return;
-		}
-		autoReplans++;
-		say(reason + "…。どうするか考えるね。");
-		Status status = StatusCollector.collect(this, level, "なし");
-		askAi("failure", PromptBuilder.userForFailure(baseName, status, memory, command.describe(), reason), null, level);
 	}
 
 	@Override
@@ -260,6 +151,13 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 
 	public void remember(String note) {
 		memory = memory.withNote(note);
+	}
+
+	void setThinking(boolean value) {
+		this.thinking = value;
+		if (!this.isRemoved()) {
+			refreshName();
+		}
 	}
 
 	private void refreshName() {
@@ -285,7 +183,7 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 	protected InteractionResult mobInteract(final Player player, final InteractionHand hand) {
 		if (hand == InteractionHand.MAIN_HAND && player.getItemInHand(hand).isEmpty()) {
 			if (!this.level().isClientSide()) {
-				say("今の作業: " + runner.describeCurrent() + " / " + inventoryText());
+				say("今の作業: " + runner.describeCurrent() + " / " + mind.inventoryText());
 			}
 			return InteractionResult.SUCCESS;
 		}
@@ -300,7 +198,7 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 	}
 
 	@Override
-	protected SoundEvent getHurtSound(final net.minecraft.world.damagesource.DamageSource source) {
+	protected SoundEvent getHurtSound(final DamageSource source) {
 		return SoundEvents.VILLAGER_HURT;
 	}
 
@@ -323,7 +221,7 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 		this.home = input.read("Home", BlockPos.CODEC).orElse(null);
 		this.baseName = input.getStringOr("BaseName", DEFAULT_NAME);
 		this.personality = input.getStringOr("Personality", "");
-		this.memory = new Memory(input.read("Notes", Codec.STRING.listOf()).orElse(java.util.List.of()), java.util.List.of());
+		this.memory = new Memory(input.read("Notes", Codec.STRING.listOf()).orElse(List.of()), List.of());
 		refreshName();
 	}
 
@@ -346,6 +244,22 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 		return lastSpeaker == null ? null : level.getPlayerByUUID(lastSpeaker);
 	}
 
+	public Memory memory() {
+		return memory;
+	}
+
+	void setMemory(Memory memory) {
+		this.memory = memory;
+	}
+
+	String personality() {
+		return personality.isBlank() ? ModServices.config().defaultPersonality : personality;
+	}
+
+	TaskRunner runner() {
+		return runner;
+	}
+
 	public String currentJob() {
 		return runner.describeCurrent();
 	}
@@ -354,8 +268,12 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 		return thinking;
 	}
 
+	public boolean isIdle() {
+		return runner.isIdle();
+	}
+
 	/** テスト用：決まった計画を直接渡す。 */
-	public void runPlan(java.util.List<Command> commands) {
+	public void runPlan(List<Command> commands) {
 		if (this.level() instanceof ServerLevel level) {
 			runner.replace(commands, this, level);
 		}
@@ -364,9 +282,5 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 	/** 腕を振る（掘る・置く・作るときの動き）。 */
 	public void swingArm() {
 		this.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, false);
-	}
-
-	public boolean isIdle() {
-		return runner.isIdle();
 	}
 }
