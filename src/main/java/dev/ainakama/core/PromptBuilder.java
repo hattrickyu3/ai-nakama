@@ -78,7 +78,31 @@ public final class PromptBuilder {
 
 	/** プレイヤーに話しかけられたとき。 */
 	public static String userForMessage(String name, Status status, Memory memory, Extras extras, String playerText) {
-		return context(name, status, memory, extras, playerText) + "[今回]\nプレイヤー: " + playerText;
+		return userForMessage(name, status, memory, extras, playerText, false);
+	}
+
+	/**
+	 * @param explainQueue 作業中の頼みがどう扱われるかを説明するか。小さいAI（qwen3.5:4b）は、この説明を読むと
+	 *                     感想を言われただけで stop を書いて今の作業をやめてしまうので、賢いAIのときだけ true にする
+	 */
+	public static String userForMessage(String name, Status status, Memory memory, Extras extras, String playerText, boolean explainQueue) {
+		return context(name, status, memory, extras, playerText) + (explainQueue ? whileWorking(status) : "")
+			+ "[今回]\nプレイヤー: " + playerText;
+	}
+
+	/**
+	 * 作業中に話しかけられたときだけ足す説明。
+	 * 小さいAIは説明が増えると慎重になりすぎる（手順を省く）ので、いつもの説明（system）には入れない。
+	 */
+	private static String whileWorking(Status status) {
+		String job = status.currentJob();
+		// 手が空いているとき、実行側（TaskRunner）は今の作業を「なし」と書く
+		if (job == null || job.isBlank() || job.equals("なし")) {
+			return "";
+		}
+		return "[作業中の注意]\nいまは作業中。plan を書くと、今の作業が終わったあとに実行される。"
+			+ "今の作業をやめて別のことをさせたいときだけ、plan の最初に stop を書く。"
+			+ "今の作業への感想や注文には say だけで答える（今の作業を plan に書き直さない）。\n";
 	}
 
 	/** プログラムで直せない失敗が起きたとき。 */

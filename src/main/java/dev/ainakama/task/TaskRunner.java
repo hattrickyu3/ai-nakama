@@ -52,6 +52,29 @@ public final class TaskRunner {
 		}
 	}
 
+	/** 今の作業と残りの予定はそのままに、そのあとにやることを足す。 */
+	public void append(List<Command> commands) {
+		for (Command c : commands) {
+			queue.addLast(new Entry(c, 0, 0));
+		}
+	}
+
+	/** 今の作業をいったん止めて commands を先にやる。終わったら、今の作業の続きに戻る。 */
+	public void interrupt(List<Command> commands, NakamaEntity nakama, ServerLevel level) {
+		if (current != null) {
+			Entry entry = currentEntry;
+			// 続きから再開できるタスクは、残りの分だけの命令に置き換わる（集める数の残りなど）
+			Command rest = current.pinned(entry.command());
+			current.cancel(nakama, level);
+			finishCurrent();
+			queue.addFirst(new Entry(rest, entry.depth(), entry.retries()));
+			nakama.getNavigation().stop();
+		}
+		for (int i = commands.size() - 1; i >= 0; i--) {
+			queue.addFirst(new Entry(commands.get(i), 0, 0));
+		}
+	}
+
 	public void clear(NakamaEntity nakama, ServerLevel level) {
 		if (current != null) {
 			current.cancel(nakama, level);

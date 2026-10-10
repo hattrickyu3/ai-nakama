@@ -15,6 +15,8 @@ import dev.ainakama.core.SkillBook;
 import dev.ainakama.core.Status;
 import dev.ainakama.core.TeachParser;
 import dev.ainakama.core.Trigger;
+import dev.ainakama.core.Urgency;
+import dev.ainakama.task.TaskRunner;
 import dev.ainakama.world.BuildRecorder;
 import dev.ainakama.world.Inv;
 import dev.ainakama.world.Places;
@@ -102,7 +104,8 @@ final class NakamaMind {
 		}
 		generation++;
 		Status status = StatusCollector.collect(nakama, level, nakama.currentJob());
-		String user = PromptBuilder.userForMessage(nakama.baseName(), status, nakama.memory(), extras(text), text);
+		String user = PromptBuilder.userForMessage(nakama.baseName(), status, nakama.memory(), extras(text), text,
+			!ModServices.config().isSmallLocalModel());
 		askAi("message", user, level, outcome -> onReply(outcome, text, level));
 	}
 
@@ -295,7 +298,21 @@ final class NakamaMind {
 	/** 命令の列を実行に移す。覚えた技は手順に展開し、「ここ」などは今の座標に置き換える。 */
 	private void start(List<Command> commands, ServerLevel level) {
 		List<Command> expanded = ModServices.skills().expand(commands);
-		nakama.runner().replace(Places.pin(expanded, nakama, level), nakama, level);
+		List<Command> pinned = Places.pin(expanded, nakama, level);
+		TaskRunner runner = nakama.runner();
+		if (runner.isIdle()) {
+			runner.replace(pinned, nakama, level);
+			return;
+		}
+		// 作業中に来た頼みで、今の作業と残りの予定を忘れないようにする
+		switch (Urgency.of(expanded)) {
+			case SWITCH -> runner.replace(pinned, nakama, level);
+			case NOW -> runner.interrupt(pinned, nakama, level);
+			case LATER -> {
+				runner.append(pinned);
+				nakama.say("今の作業が終わったらやるね。（すぐやめてほしいときは「止まって」と言ってね）");
+			}
+		}
 	}
 
 	// ---- 実行側からの知らせ ----

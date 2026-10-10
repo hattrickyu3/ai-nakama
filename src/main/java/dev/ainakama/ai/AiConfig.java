@@ -86,6 +86,11 @@ public final class AiConfig {
 		return problems;
 	}
 
+	/** PCの中で動く小さいAIか。小さいAIには、説明を増やさない（増やすと、かえって間違える）。 */
+	public boolean isSmallLocalModel() {
+		return "ollama".equals(provider);
+	}
+
 	public String effectiveApiKey() {
 		String env = System.getenv(API_KEY_ENV);
 		if (env != null && !env.isBlank()) {

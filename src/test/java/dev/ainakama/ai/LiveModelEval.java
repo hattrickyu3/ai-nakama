@@ -47,6 +47,39 @@ class LiveModelEval {
 		"ゾンビが来た！助けて！",
 		"これから洞窟に行くから、そばで守っていてね");
 
+	/** 作業中（木を集めている途中）に話しかけられたときの頼み。2026-10-10 に実際に遊んだときの言い方を含む。 */
+	private static final List<String> REQUESTS_WHILE_WORKING = List.of(
+		"あのね、木は上まで残らず取り切ってほしいんだ",
+		"がんばってるね！",
+		"終わったら石も30個掘ってきて",
+		"やっぱり木はもういいや。石を掘ってきて",
+		"あとで松明も8個作っておいて");
+
+	/** 作業中の頼み：感想には say だけ、追加の頼みは plan、やめさせる頼みは plan の最初に stop、となっているかを目で読む。 */
+	@Test
+	void evaluateWhileWorking() {
+		AiConfig cfg = new AiConfig();
+		cfg.provider = System.getProperty("ainakama.provider", cfg.provider);
+		cfg.model = System.getProperty("ainakama.model", "qwen3.5:4b");
+		AiService service = new AiService(LlmClient.create(cfg, Path.of("build", "claude-cli")), new CallBudget(0, 1000, ZoneId.systemDefault()),
+			new PlanParser(ITEMS::contains), new UsageLog(Path.of("build", "live-eval-usage.csv")), cfg.model, System::currentTimeMillis);
+		Status status = new Status("昼", "晴れ", 20, 20, "座標 10 64 -5、拠点（5 64 -5）から東に5マス", Map.of("oak_log", 14),
+			List.of(Items.label("oak_log") + " 北に12マス 約30個", "stone 下に3マス"), List.of(), List.of("home"),
+			"oak_log(オークの原木)を集める（14/30）（このあと1個）");
+		String system = PromptBuilder.system("ミナ", cfg.defaultPersonality);
+		for (String req : REQUESTS_WHILE_WORKING) {
+			String user = PromptBuilder.userForMessage("ミナ", status, Memory.empty(), PromptBuilder.Extras.none(), req, !cfg.isSmallLocalModel());
+			var out = service.ask(UUID.randomUUID(), "eval", system, user).join();
+			System.out.println("\n### 作業中: " + req);
+			if (out instanceof AiService.Outcome.Success s) {
+				System.out.println("say: " + s.plan().say());
+				s.plan().commands().forEach(c -> System.out.println("  - " + c.describe()));
+			} else {
+				System.out.println("  " + out);
+			}
+		}
+	}
+
 	@Test
 	void evaluate() {
 		AiConfig cfg = new AiConfig();
