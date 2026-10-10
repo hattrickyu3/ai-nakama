@@ -25,8 +25,7 @@
 - Library: 覚えた技・設計図のファイル保存（config/ainakama/）
 
 ## はまったところ（次に直すときのために）
-- シェルの heredoc で python に渡した文字列の `\n` は、本物の改行になってしまう。`
-` を含む置き換えは Edit ツールで行う
+- シェルの heredoc で python に渡した文字列の中の「バックスラッシュ＋n」は、本物の改行になってしまう。それを含む置き換えは Edit ツールで行う
 - python で書き込むときは write_bytes を使う（write_text だと行末が CRLF になる）
 - テスト用の木の葉っぱは DISTANCE=1 で置く。初期状態（7）だと時間がたつと消え、「自然の木」と判定されなくなる
 - 仲間が「近づく処理」で毎tick navigation.stop() を呼ぶと、よける移動が打ち消される（BuildTask の evadeTicks）
