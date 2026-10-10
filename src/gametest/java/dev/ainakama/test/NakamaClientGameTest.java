@@ -54,6 +54,10 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 
 			step("原木を4本集める", List.of(new Command.Collect("oak_log", 4)),
 				n -> Inv.count(n.getInventory(), "#log") >= 4, LONG);
+			// 木は高さ3。頼まれた4本に届いても、切りかけの木は上まで切りきる（幹が宙に残らない）
+			server.waitFor(s -> nakama(s).isIdle(), LONG);
+			check("木を切り残していない（残っている原木は、手つかずの木の分だけ）",
+				server.computeOnServer(s -> count(nakama(s), base.offset(14, 0, 0), 10, "oak_log")) % 3 == 0);
 			step("木のツルハシを作る（本体のレシピで、板材・棒・作業台を自動で作る）", List.of(new Command.Craft("wooden_pickaxe", 1)),
 				n -> Inv.count(n.getInventory(), "wooden_pickaxe") >= 1, LONG);
 			step("はしごを作る（手書きの表にはなかったレシピ）", List.of(new Command.Craft("ladder", 3)),
@@ -110,6 +114,8 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 			check("収穫したあとに植え直し、空いていた畑にも植えた（6マス全部に小麦）", crops[0] == 6);
 			check("育ちきった小麦は残っていない", crops[1] == 0);
 
+			// ミナが倒す前にプレイヤーが倒されると、テストごとゲームが終わってしまうので、ダメージを受けないようにする
+			server.runCommand("effect give @p minecraft:resistance infinite 4 true");
 			server.runCommand("difficulty easy");
 			UUID huskId = server.computeOnServer(s -> spawnHusk(s, base.offset(-4, 0, 4)));
 			context.waitTicks(10);
@@ -171,6 +177,17 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 			chat("ついてきて");
 			server.waitFor(s -> nakama(s).currentJob().contains("ついていく"), 100);
 			LOG.info("[ainakama-test] OK: 名前なしの「止まって」「ついてきて」が通じた");
+			// 作業中に別のことを頼んでも、今の作業は続け、頼まれたことはそのあとにやる
+			chat("止まって");
+			server.waitFor(s -> nakama(s).isIdle(), 100);
+			chat("木を6本集めて");
+			server.waitFor(s -> nakama(s).currentJob().contains("集める"), 100);
+			chat("松明を4個作って");
+			server.waitFor(s -> nakama(s).currentJob().contains("集める") && nakama(s).currentJob().contains("このあと1個"), 100);
+			LOG.info("[ainakama-test] OK: 作業中の頼みは、今の作業のあとに足された（{}）", job());
+			chat("止まって");
+			server.waitFor(s -> nakama(s).isIdle(), 100);
+			LOG.info("[ainakama-test] OK: 「止まって」で、足した分もまとめてやめた");
 			// 言葉で教える（プログラムが読み取るので、AIは使わない）
 			int logsBeforeCamp = server.computeOnServer(s -> Inv.count(nakama(s).getInventory(), "#log"));
 			chat("ミナ、キャンプの準備っていうのは、木を3本集めて、作業台を1個作ることだよ");
@@ -193,6 +210,29 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 			LOG.info("[ainakama-test] 最後に覚えている技: {}（「冬支度」が入っていれば、AIが聞き返して、その答えを覚えられた）", learned);
 			context.waitTicks(100);
 			context.takeScreenshot("ainakama-03-after-ai");
+
+			// 遠く（読み込まれていない土地）にいる仲間：言葉は届かないが、「こっちに来て」で呼び寄せられる
+			chat("止まって");
+			context.waitTicks(10);
+			server.runCommand("tp @p " + (base.getX() + 400) + " " + base.getY() + " " + base.getZ());
+			context.waitTicks(200);
+			LOG.info("[ainakama-test] プレイヤーが400マス先へ行ったあと、置いていかれた仲間は読み込まれて{}",
+				server.computeOnServer(s -> nakama(s) == null) ? "いない" : "いる");
+			chat("松明を4個作って");
+			context.waitTicks(20);
+			check("遠くの仲間には言葉が届かず、その場から動かない", server.computeOnServer(s -> {
+				NakamaEntity n = nakama(s);
+				return n == null || (n.isIdle() && n.distanceToSqr(player(s)) > 300 * 300);
+			}));
+			chat("こっちに来て");
+			server.waitFor(s -> {
+				NakamaEntity n = nakama(s);
+				return n != null && n.distanceToSqr(player(s)) < 10 * 10;
+			}, 400);
+			server.waitFor(s -> nakama(s).currentJob().contains("ついていく"), 100);
+			LOG.info("[ainakama-test] OK: 「こっちに来て」で、遠くの仲間がそばに来てついてきた");
+			chat("止まって");
+			context.waitTicks(10);
 			LOG.info("[ainakama-test] ALL PASSED");
 		}
 	}

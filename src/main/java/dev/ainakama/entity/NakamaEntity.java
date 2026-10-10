@@ -6,6 +6,7 @@ import dev.ainakama.core.Command;
 import dev.ainakama.core.Memory;
 import dev.ainakama.core.Trigger;
 import dev.ainakama.task.TaskRunner;
+import dev.ainakama.world.Whereabouts;
 import java.util.List;
 import java.util.UUID;
 import net.minecraft.ChatFormatting;
@@ -46,8 +47,7 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 	public static final String DEFAULT_NAME = "ミナ";
 	public static final double WALK_SPEED = 0.6;
 	private static final int INVENTORY_SIZE = 27;
-	private static final int REGEN_INTERVAL = 80;
-	private static final String THINKING_SUFFIX = "（考え中…）";
+	private static final int REGEN_INTERVAL = 80;	private static final String THINKING_SUFFIX = "（考え中…）";
 
 	private final SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE);
 	private final TaskRunner runner = new TaskRunner();
@@ -105,6 +105,8 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 	protected void customServerAiStep(final ServerLevel level) {
 		super.customServerAiStep(level);
 		runner.tick(this, level, this);
+		// 読み込まれていない土地へ踏み込むと、その瞬間に止まる。居場所がずれないよう、毎tick覚える
+		Whereabouts.seen(this);
 		if (this.tickCount % REGEN_INTERVAL == 0 && this.getHealth() < this.getMaxHealth()) {
 			this.heal(1.0F);
 		}
@@ -119,6 +121,20 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 	@Override
 	public boolean removeWhenFarAway(final double distSqr) {
 		return false;
+	}
+
+	/** 遠くなって読み込まれなくなるときは、最後の居場所を名簿に残す。倒されたときなどは名簿から消す。 */
+	@Override
+	public void onRemoval(final RemovalReason reason) {
+		// 読み込まれなくなるときは remove() を通らないので、ここで受ける
+		if (this.level() instanceof ServerLevel) {
+			if (reason.shouldDestroy()) {
+				Whereabouts.forget(this.getUUID());
+			} else {
+				Whereabouts.seen(this);
+			}
+		}
+		super.onRemoval(reason);
 	}
 
 	// ---- 話しかけられたとき・実行側からの知らせ ----
