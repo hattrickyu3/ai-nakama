@@ -4,10 +4,10 @@ import dev.ainakama.AiNakama;
 import dev.ainakama.core.Command;
 import dev.ainakama.core.CraftPlanner;
 import dev.ainakama.core.Items;
-import dev.ainakama.core.PlanParser;
+import dev.ainakama.core.Smelting;
 import dev.ainakama.entity.NakamaEntity;
 import dev.ainakama.world.Inv;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import net.minecraft.core.BlockPos;
@@ -18,7 +18,8 @@ import net.minecraft.world.level.block.Blocks;
 
 /**
  * クラフトする。途中の材料（板材・棒・作業台）は {@link CraftPlanner} が決めた順に自動で作る。
- * 素材そのもの（原木・丸石など）が足りなければ「先に集めて」と返す。
+ * 素材そのもの（原木・丸石・鉄インゴットなど）が足りなければ、チェストから出す・集める・焼く、のどれかを「先にやって」と返す。
+ * クラフトでは作れず、集めるか焼くしかないもの（鉄インゴット・石炭など）を頼まれたときは、その作業に任せる。
  */
 final class CraftTask implements Task {
 	private static final int TABLE_SEARCH_RADIUS = 6;
@@ -29,6 +30,8 @@ final class CraftTask implements Task {
 	private List<CraftPlanner.Step> steps;
 	private int stepIndex;
 	private int wait;
+	/** クラフトでは作れないものを頼まれたときに、代わりに行う作業（集める・焼く）。 */
+	private Task instead;
 
 	CraftTask(String item, int count) {
 		this.item = item;
@@ -37,6 +40,9 @@ final class CraftTask implements Task {
 
 	@Override
 	public Result tick(NakamaEntity nakama, ServerLevel level) {
+		if (instead != null) {
+			return instead.tick(nakama, level);
+		}
 		if (steps == null) {
 			Result planned = plan(nakama, level);
 			if (planned != null) {
@@ -73,29 +79,55 @@ final class CraftTask implements Task {
 		String key = Items.groupOf(item);
 		int want = Items.count(inv, key) + count;
 		CraftPlanner.Result result;
+		// 計画の途中で同じ材料を何度も聞かれるので、チェストを調べた結果は覚えておく（調べるたびに近くのチェストを全部開けるため）
+		Map<String, Boolean> stocked = new HashMap<>();
 		try {
-			result = CraftPlanner.plan(inv, item, want, tableNearby(nakama, level));
+			result = CraftPlanner.plan(inv, item, want, tableNearby(nakama, level),
+				k -> stocked.computeIfAbsent(k, key2 -> Supplies.isStocked(key2, nakama, level)));
 		} catch (RuntimeException e) {
 			// 計画の計算に不具合があっても、ゲームを止めずに「作れなかった」で済ませる
 			AiNakama.LOGGER.error("{} の作り方を計算できませんでした（持ち物: {}）", item, inv, e);
 			return new Result.Failed(Items.label(item) + "の作り方を考えているうちに、わからなくなった");
 		}
 		if (!result.complete()) {
-			List<Command> first = new ArrayList<>();
-			for (var e : result.missing().entrySet()) {
-				var collectable = Items.collectableFor(e.getKey());
-				if (collectable.isEmpty()) {
-					return new Result.Failed(Items.label(item) + "を作るのに" + Items.describeKey(e.getKey()) + "が" + e.getValue()
-						+ "個足りない（集め方を知らない。渡してくれたら作れるよ）");
-				}
-				first.add(new Command.Collect(collectable.get(), Math.min(e.getValue(), PlanParser.MAX_COUNT)));
+			if (result.missing().containsKey(key)) {
+				return planInstead(nakama, level);
 			}
-			return new Result.Needs(first, Items.label(item) + "の材料が足りない");
+			Supplies.Plan supplies = Supplies.plan(result.missing(), nakama, level);
+			if (!supplies.ok()) {
+				return new Result.Failed(Items.label(item) + "を作るのに" + Items.describeKey(supplies.unknown()) + "が"
+					+ result.missing().get(supplies.unknown()) + "個足りない（集め方を知らない。渡してくれたら作れるよ）");
+			}
+			return new Result.Needs(supplies.commands(), Items.label(item) + "の材料が足りない");
 		}
 		steps = result.steps();
 		stepIndex = 0;
 		wait = TICKS_PER_STEP;
 		return steps.isEmpty() ? DONE : null;
+	}
+
+	/**
+	 * 頼まれたもの自体が、手持ちの材料からはクラフトできないとき。集めるか焼くかで手に入るなら、その作業に任せる。
+	 * （ここで「先に集めて」と返すと、やり直したときに同じ数をもう一度作ろうとしてしまう）
+	 */
+	private Result planInstead(NakamaEntity nakama, ServerLevel level) {
+		if (Items.isCollectable(item)) {
+			instead = new CollectTask(item, count);
+		} else if (Smelting.isProduct(item)) {
+			instead = new SmeltTask(item, count);
+		} else {
+			return new Result.Failed(Items.label(item) + "の材料の集め方を知らない（材料を渡してくれたら作れるよ）");
+		}
+		return instead.tick(nakama, level);
+	}
+
+	/** 代わりに焼いている途中でやり直すときは、まだ焼けていない数だけを頼み直す。 */
+	@Override
+	public Command pinned(Command original) {
+		if (instead != null && instead.pinned(original) instanceof Command.Smelt rest) {
+			return new Command.Craft(item, rest.count());
+		}
+		return original;
 	}
 
 	private enum Applied {
@@ -137,7 +169,17 @@ final class CraftTask implements Task {
 	}
 
 	@Override
+	public void cancel(NakamaEntity nakama, ServerLevel level) {
+		if (instead != null) {
+			instead.cancel(nakama, level);
+		}
+	}
+
+	@Override
 	public String describe() {
+		if (instead != null) {
+			return instead.describe();
+		}
 		return Items.label(item) + "を" + count + "個作る";
 	}
 }

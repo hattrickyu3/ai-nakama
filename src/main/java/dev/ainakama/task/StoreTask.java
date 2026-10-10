@@ -2,16 +2,16 @@ package dev.ainakama.task;
 
 import dev.ainakama.entity.NakamaEntity;
 import dev.ainakama.world.Inv;
+import dev.ainakama.world.Storage;
+import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.entity.BlockEntity;
 
 /** 道具以外の持ち物を、近くのチェスト（樽なども可）にしまう。拠点の近くのチェストを優先する。 */
 final class StoreTask implements Task {
-	private static final int SEARCH_RADIUS = 16;
 	private static final double REACH = 3.5;
 	private static final int STUCK_TICKS = 160;
 
@@ -39,7 +39,7 @@ final class StoreTask implements Task {
 			if (s.isEmpty() || Inv.isTool(s)) {
 				continue;
 			}
-			moveInto(target, s);
+			Storage.moveInto(target, s);
 			if (!s.isEmpty()) {
 				full = true;
 			}
@@ -49,49 +49,10 @@ final class StoreTask implements Task {
 		return full ? new Result.Failed("チェストがいっぱいで全部はしまえなかった") : DONE;
 	}
 
-	/** stack を container に入れる。入った分だけ stack が減る。 */
-	private static void moveInto(Container container, ItemStack stack) {
-		for (int i = 0; i < container.getContainerSize() && !stack.isEmpty(); i++) {
-			ItemStack slot = container.getItem(i);
-			if (!slot.isEmpty() && ItemStack.isSameItemSameComponents(slot, stack)) {
-				int room = Math.min(slot.getMaxStackSize(), container.getMaxStackSize()) - slot.getCount();
-				int n = Math.min(room, stack.getCount());
-				if (n > 0) {
-					slot.grow(n);
-					stack.shrink(n);
-				}
-			}
-		}
-		for (int i = 0; i < container.getContainerSize() && !stack.isEmpty(); i++) {
-			if (container.getItem(i).isEmpty()) {
-				container.setItem(i, stack.copy());
-				stack.setCount(0);
-			}
-		}
-	}
-
 	private static BlockPos findChest(NakamaEntity nakama, ServerLevel level) {
-		BlockPos center = nakama.home() != null && nakama.home().closerThan(nakama.blockPosition(), SEARCH_RADIUS * 2)
+		BlockPos center = nakama.home() != null && nakama.home().closerThan(nakama.blockPosition(), Storage.CHEST_RADIUS * 2)
 			? nakama.home() : nakama.blockPosition();
-		BlockPos best = null;
-		double bestDist = Double.MAX_VALUE;
-		for (BlockPos p : BlockPos.betweenClosed(center.offset(-SEARCH_RADIUS, -4, -SEARCH_RADIUS),
-			center.offset(SEARCH_RADIUS, 4, SEARCH_RADIUS))) {
-			BlockEntity be = level.getBlockEntity(p);
-			if (be instanceof Container && isStorage(be)) {
-				double d = p.distSqr(center);
-				if (d < bestDist) {
-					bestDist = d;
-					best = p.immutable();
-				}
-			}
-		}
-		return best;
-	}
-
-	private static boolean isStorage(BlockEntity be) {
-		String id = Inv.idOf(be.getBlockState().getBlock().asItem());
-		return id.equals("chest") || id.equals("barrel") || id.equals("trapped_chest");
+		return Storage.chests(level, List.of(center)).stream().findFirst().orElse(null);
 	}
 
 	@Override

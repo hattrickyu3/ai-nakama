@@ -13,8 +13,11 @@ import net.minecraft.server.level.ServerLevel;
  * 差し込みが深くなりすぎたら失敗として扱い、仲間に知らせる。
  */
 public final class TaskRunner {
-	/** 差し込みの深さの上限。かまど ← 丸石 ← 木のツルハシ ← 原木、で3段。 */
-	public static final int MAX_DEPTH = 3;
+	/**
+	 * 差し込みの深さの上限。何も持たずに鉄の道具を頼まれたときがいちばん深く、
+	 * 鉄の道具 ← 焼く ← かまどを置く ← かまどを作る ← 丸石 ← 木のツルハシ ← 原木、で6段。
+	 */
+	public static final int MAX_DEPTH = 6;
 
 	/**
 	 * 同じ命令を「先にやること」のあとでやり直す回数の上限。材料集めが空回りし続けないようにする。

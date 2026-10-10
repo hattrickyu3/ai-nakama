@@ -7,12 +7,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * 「これを何個作りたい」から、途中の材料も含めたクラフトの手順を決める。
  * 例：原木3本しか持っていないときに木のツルハシを頼まれたら、板材 → 棒 → 作業台 → ツルハシ の順に作る。
  * 足りない素材（原木・丸石など、作れないもの）は missing に入れて返し、集めるのは実行側に任せる。
- * 作り方が何通りかあるものは、材料がそろう（または集められる）作り方を選ぶ。
+ * 作り方が何通りかあるものは、材料がそろう（または手に入れられる）作り方を選ぶ。
+ * 「手に入れられる」のは、集められるもの・かまどで焼いて作れるもの・近くのチェストに入っているもの。
  */
 public final class CraftPlanner {
 	private static final int MAX_DEPTH = 6;
@@ -39,6 +41,8 @@ public final class CraftPlanner {
 		final Map<String, Integer> missing;
 		/** ほかの材料づくりで使ってしまわないように取り置いている数（実際のIDごと）。 */
 		final Map<String, Integer> reserved;
+		/** 堂々めぐりにぶつかった回数。ぶつかった作り方は、採用しない。 */
+		int cycles;
 
 		State(Map<String, Integer> inventory) {
 			this(new LinkedHashMap<>(inventory), new ArrayList<>(), new LinkedHashMap<>(), new LinkedHashMap<>());
@@ -52,7 +56,9 @@ public final class CraftPlanner {
 		}
 
 		State copy() {
-			return new State(new LinkedHashMap<>(inventory), new ArrayList<>(steps), new LinkedHashMap<>(missing), new LinkedHashMap<>(reserved));
+			State copy = new State(new LinkedHashMap<>(inventory), new ArrayList<>(steps), new LinkedHashMap<>(missing), new LinkedHashMap<>(reserved));
+			copy.cycles = cycles;
+			return copy;
 		}
 
 		/** key に当てはまるもののうち、取り置かれていない数。 */
@@ -102,13 +108,16 @@ public final class CraftPlanner {
 	}
 
 	private final boolean tableNearby;
+	/** 近くのチェストに入っているか（キーで聞く）。 */
+	private final Predicate<String> stocked;
 	/** いま作ろうとしている途中のもの。鉄ブロック ⇄ 鉄インゴットのような堂々めぐりを止める。 */
 	private final Set<String> inProgress = new HashSet<>();
 	private State state;
 
-	private CraftPlanner(Map<String, Integer> inventory, boolean tableNearby) {
+	private CraftPlanner(Map<String, Integer> inventory, boolean tableNearby, Predicate<String> stocked) {
 		this.state = new State(inventory);
 		this.tableNearby = tableNearby;
+		this.stocked = stocked;
 	}
 
 	/**
@@ -118,7 +127,12 @@ public final class CraftPlanner {
 	 * @param tableNearby 近くに作業台が置いてあるか
 	 */
 	public static Result plan(Map<String, Integer> inventory, String target, int count, boolean tableNearby) {
-		CraftPlanner planner = new CraftPlanner(inventory, tableNearby);
+		return plan(inventory, target, count, tableNearby, key -> false);
+	}
+
+	/** @param stocked 近くのチェストに入っているものか（入っていれば、足りない材料として挙げてよい） */
+	public static Result plan(Map<String, Integer> inventory, String target, int count, boolean tableNearby, Predicate<String> stocked) {
+		CraftPlanner planner = new CraftPlanner(inventory, tableNearby, stocked);
 		planner.ensure(Items.groupOf(target), count, 0);
 		State s = planner.state;
 		return new Result(List.copyOf(s.steps), Map.copyOf(s.missing), Map.copyOf(s.inventory));
@@ -132,7 +146,13 @@ public final class CraftPlanner {
 		}
 		int deficit = count - have;
 		List<Recipes.Recipe> candidates = Recipes.candidates(key);
-		if (candidates.isEmpty() || depth > MAX_DEPTH || !inProgress.add(key)) {
+		if (candidates.isEmpty() || depth > MAX_DEPTH) {
+			state.missing.merge(key, deficit, Integer::sum);
+			return false;
+		}
+		if (!inProgress.add(key)) {
+			// 自分を作る途中で、また自分が要る（鉄インゴット ← 鉄ブロック ← 鉄インゴット）
+			state.cycles++;
 			state.missing.merge(key, deficit, Integer::sum);
 			return false;
 		}
@@ -148,15 +168,17 @@ public final class CraftPlanner {
 					// 作ったが、ほしい種類にならなかった（オークの板材がほしいのに、シラカバの原木しかない、など）
 					state.missing.merge(key, count - state.available(key), Integer::sum);
 				}
-				// 足りないものが全部「集めれば手に入るもの」なら、その作り方を採用する
-				if (bestFailure == null && newMissingIsCollectable(before)) {
+				// 足りないものが全部「手に入れられるもの」なら、その作り方を採用する
+				if (bestFailure == null && newMissingIsObtainable(before)) {
 					bestFailure = state;
 				}
 			}
-			if (bestFailure != null) {
+			// 材料として要るもので、集めたりチェストから出したりできるなら、作るよりそのほうが早い（石炭を石炭ブロックから作らない）
+			boolean fetchInstead = depth > 0 && (Items.collectableFor(key).isPresent() || stocked.test(key));
+			if (bestFailure != null && !fetchInstead) {
 				state = bestFailure;
 			} else {
-				// どの作り方でも材料の入手方法がわからない：このもの自体を「足りない」とする
+				// 作るより取ってくるほうが早いか、どの作り方でも材料の入手方法がわからない：このもの自体を「足りない」とする
 				state = before;
 				state.missing.merge(key, deficit, Integer::sum);
 			}
@@ -166,14 +188,21 @@ public final class CraftPlanner {
 		}
 	}
 
-	private boolean newMissingIsCollectable(State before) {
+	private boolean newMissingIsObtainable(State before) {
+		if (state.cycles > before.cycles) {
+			return false;
+		}
 		for (var e : state.missing.entrySet()) {
 			boolean isNew = e.getValue() > before.missing.getOrDefault(e.getKey(), 0);
-			if (isNew && Items.collectableFor(e.getKey()).isEmpty()) {
+			if (isNew && !isObtainable(e.getKey())) {
 				return false;
 			}
 		}
 		return true;
+	}
+
+	private boolean isObtainable(String key) {
+		return Items.collectableFor(key).isPresent() || Smelting.canMake(key) || stocked.test(key);
 	}
 
 	private boolean tryRecipe(Recipes.Recipe r, int deficit, int depth) {

@@ -58,6 +58,19 @@ public final class QuickCommands {
 	private static final Pattern CRAFT = Pattern.compile("^(.+?)を" + NUM + UNIT + "(作って|つくって|クラフトして)" + END);
 	private static final Pattern BUILD = Pattern.compile("^(ここに|拠点に)?(.+?)を(建てて|たてて|作って|つくって)" + END);
 	private static final Pattern PLACE = Pattern.compile("^(ここに|そこに)(.+?)を(置いて|おいて|設置して|つけて|付けて)" + END);
+	private static final String CHEST = "(?:近くの|この|その)?(?:チェスト|箱|樽)(?:の中)?から";
+	private static final String TAKE_VERB = "(?:取り出して|とりだして|取ってきて|とってきて|持ってきて|もってきて|取って|とって|出して|だして)";
+	/** 「チェストから石を10個出して」と「石をチェストから10個出して」の両方。 */
+	private static final Pattern TAKE = Pattern.compile("^" + CHEST + "(.+?)を" + NUM + UNIT + TAKE_VERB + END);
+	private static final Pattern TAKE2 = Pattern.compile("^(.+?)を" + CHEST + NUM + UNIT + TAKE_VERB + END);
+	private static final Pattern SMELT = Pattern.compile("^(?:かまどで)?(.+?)を" + NUM + UNIT + "(?:かまどで)?(?:焼いてきて|焼いて|やいて|精錬して)" + END);
+	private static final Pattern FARM = Pattern.compile("^(畑仕事(を)?(して|やって)|畑の(世話|手入れ)(を)?して|((畑|作物|小麦|野菜)(を|の))?(収穫(を)?して|刈り取って)|(種|たね)を(植えて|まいて|蒔いて))" + END);
+	private static final Pattern FIGHT = Pattern.compile("^((近くの|まわりの|周りの|その|あの)?(敵|モンスター|ゾンビ|スケルトン|クモ|クリーパー)(たち)?を(倒して|たおして|やっつけて|退治して|攻撃して)|戦って|たたかって)" + END);
+	/**
+	 * 「守って」のほか、「これから洞窟に行くから、そばで守っていてね」のように理由が前に付いた言い方も受ける（小さいAIは follow と取り違えやすい）。
+	 * 「木を集めてから守って」の「てから」は順番の指示なので、理由としては受けない（集めるほうを落としてしまうため）。
+	 */
+	private static final Pattern GUARD = Pattern.compile("^(.{1,30}?(?<![てで])(から|ので))?(そばで|近くで|ずっと|しっかり)*((私|僕|俺|わたし|ぼく|おれ)を)?(守って|まもって|護衛(を)?して)(いて|おいて|て)?" + END);
 
 	private QuickCommands() {
 	}
@@ -91,7 +104,32 @@ public final class QuickCommands {
 		if (STORE.matcher(s).matches()) {
 			return plan("チェストにしまってくるね。", new Command.Store());
 		}
-		Matcher m = PLACE.matcher(s);
+		if (FARM.matcher(s).matches()) {
+			return plan("畑の世話をしてくるね！", new Command.Farm());
+		}
+		if (FIGHT.matcher(s).matches()) {
+			return plan("まかせて、やっつけてくる！", new Command.Fight());
+		}
+		if (GUARD.matcher(s).matches()) {
+			return plan("まかせて、そばで守るね！", new Command.Guard());
+		}
+		for (Pattern p : List.of(TAKE, TAKE2)) {
+			Matcher tm = p.matcher(s);
+			if (tm.matches()) {
+				var item = Items.resolve(tm.group(1), itemExists);
+				if (item.isPresent()) {
+					return plan("チェストから取ってくるね。", new Command.Take(item.get(), count(tm.group(2))));
+				}
+			}
+		}
+		Matcher m = SMELT.matcher(s);
+		if (m.matches()) {
+			var result = Items.resolve(m.group(1), itemExists).flatMap(Smelting::resultFor);
+			if (result.isPresent()) {
+				return plan("かまどで焼いてくるね！", new Command.Smelt(result.get(), count(m.group(2))));
+			}
+		}
+		m = PLACE.matcher(s);
 		if (m.matches()) {
 			var item = Items.resolve(m.group(2), itemExists);
 			if (item.isPresent()) {
@@ -128,8 +166,13 @@ public final class QuickCommands {
 		m = CRAFT.matcher(s);
 		if (m.matches()) {
 			var item = Items.resolve(m.group(1), itemExists);
+			int n = clamp(Quantity.parse(m.group(2)).orElse(1));
 			if (item.isPresent() && Recipes.canCraft(item.get())) {
-				return plan("作ってみるね！", new Command.Craft(item.get(), clamp(Quantity.parse(m.group(2)).orElse(1))));
+				return plan("作ってみるね！", new Command.Craft(item.get(), n));
+			}
+			if (item.isPresent() && Smelting.isProduct(item.get())) {
+				// ガラスや木炭のように、クラフトではなく焼いて作るもの
+				return plan("かまどで焼いて作るね！", new Command.Smelt(item.get(), n));
 			}
 		}
 		if (HOME_WORD.matcher(s).find() && WHERE_WORD.matcher(s).find()) {
@@ -150,6 +193,11 @@ public final class QuickCommands {
 
 	private static Optional<Match> plan(String say, Command c) {
 		return Optional.of(Match.plan(new Plan(say, List.of(c), null)));
+	}
+
+	/** 数の指定があればその数、なければ 0（あるだけ全部）。 */
+	private static int count(String quantity) {
+		return Quantity.parse(quantity).map(QuickCommands::clamp).orElse(0);
 	}
 
 	private static int clamp(int n) {

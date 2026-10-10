@@ -4,6 +4,7 @@ import dev.ainakama.AiNakama;
 import dev.ainakama.ModServices;
 import dev.ainakama.core.Items;
 import dev.ainakama.core.Recipes;
+import dev.ainakama.core.Smelting;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,10 +17,12 @@ import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.ShapedRecipe;
 import net.minecraft.world.item.crafting.ShapelessRecipe;
+import net.minecraft.world.item.crafting.SingleRecipeInput;
+import net.minecraft.world.item.crafting.SmeltingRecipe;
 
 /**
  * マイクラ本体のクラフトのレシピを読み、仲間が使える形（{@link Recipes}）にする。
- * これで、手書きの表にない物（はしご・ベッド・ボートなど）も作れるようになる。かまどで焼くレシピは対象外。
+ * これで、手書きの表にない物（はしご・ベッド・ボートなど）も作れるようになる。かまどで焼くレシピは {@link Smelting} に入れる。
  */
 public final class RecipeImporter {
 	/** 2×2に収まらないレシピは作業台が要る。 */
@@ -31,16 +34,36 @@ public final class RecipeImporter {
 
 	public static void importFrom(MinecraftServer server) {
 		List<Recipes.Recipe> recipes = new ArrayList<>();
+		Map<String, List<String>> smelting = new LinkedHashMap<>();
 		for (RecipeHolder<?> holder : server.getRecipeManager().getRecipes()) {
 			try {
+				if (holder.value() instanceof SmeltingRecipe smelt) {
+					convertSmelting(smelt, smelting);
+					continue;
+				}
 				convert(holder.value(), recipes);
 			} catch (RuntimeException e) {
 				AiNakama.LOGGER.debug("レシピを読めませんでした: {}", holder.id(), e);
 			}
 		}
 		Recipes.install(recipes);
-		AiNakama.LOGGER.info("クラフトのレシピを {} 種類読み込みました", Recipes.count());
+		Smelting.install(smelting);
+		AiNakama.LOGGER.info("クラフトのレシピを {} 種類、かまどで焼くレシピを {} 種類読み込みました", Recipes.count(), Smelting.count());
 		ModServices.reloadSkills();
+	}
+
+	/** かまどで焼くレシピ（できるもの ← 焼く前のものの候補）。溶鉱炉・燻製器だけのレシピは対象外。 */
+	private static void convertSmelting(SmeltingRecipe recipe, Map<String, List<String>> out) {
+		ItemStack result = recipe.assemble(new SingleRecipeInput(ItemStack.EMPTY));
+		List<String> ids = recipe.input().items().map(h -> Inv.idOf(h.value())).sorted().toList();
+		if (result.isEmpty() || ids.isEmpty()) {
+			return;
+		}
+		List<String> inputs = out.computeIfAbsent(Inv.idOf(result.getItem()), k -> new ArrayList<>());
+		String key = Items.keyFor(ids);
+		if (!inputs.contains(key)) {
+			inputs.add(key);
+		}
 	}
 
 	private static void convert(Recipe<?> recipe, List<Recipes.Recipe> out) {

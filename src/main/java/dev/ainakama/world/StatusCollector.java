@@ -32,6 +32,7 @@ public final class StatusCollector {
 		"water", "water(水)",
 		"chest", "chest(チェスト)",
 		"crafting_table", "crafting_table(作業台)",
+		"furnace", "furnace(かまど)",
 		"wheat", "wheat(小麦畑)");
 
 	private record Found(String label, int count, int dx, int dy, int dz, double dist) {

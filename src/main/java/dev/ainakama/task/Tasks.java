@@ -40,6 +40,11 @@ public final class Tasks {
 				.orElseGet(() -> failing("置く場所が決まらない"));
 			case Command.UseSkill u -> failing("「" + u.name() + "」という技を覚えていない");
 			case Command.Store s -> new StoreTask();
+			case Command.Take t -> new TakeTask(t.item(), t.count());
+			case Command.Smelt s -> new SmeltTask(s.item(), s.count());
+			case Command.Farm f -> new FarmTask();
+			case Command.Fight f -> new FightTask(false);
+			case Command.Guard g -> new FightTask(true);
 		};
 	}
 

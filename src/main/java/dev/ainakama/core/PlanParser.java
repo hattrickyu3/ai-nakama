@@ -20,6 +20,7 @@ public final class PlanParser {
 	public static final int MAX_COUNT = 256;
 	public static final int MAX_SAY_LENGTH = 200;
 	public static final int MAX_NAME_LENGTH = 30;
+	private static final String FURNACE = "furnace";
 
 	public record Result(Plan plan, List<String> errors) {
 		public boolean ok() {
@@ -54,7 +55,7 @@ public final class PlanParser {
 		String say = truncate(stringOr(obj, "say", ""), MAX_SAY_LENGTH);
 		String memo = blankToNull(stringOr(obj, "memo", null));
 		String ask = blankToNull(stringOr(obj, "ask", null));
-		List<Command> commands = commandList(obj.get("plan"), "plan", errors);
+		List<Command> commands = withoutFurnacePrep(commandList(obj.get("plan"), "plan", errors));
 
 		Plan.Skill teach = null;
 		JsonElement teachEl = obj.get("teach");
@@ -86,6 +87,29 @@ public final class PlanParser {
 			}
 		}
 		return new Result(new Plan(say, commands, memo, ask, teach, rule), errors);
+	}
+
+	/**
+	 * smelt はかまどの用意も自分でやる（近くにあればそれを使う）ので、その前に書かれた「かまどを作る・置く」は取り除く。
+	 * 小さいAIは説明しても毎回これを書くことがあり、そのままだと焼くたびにかまどが1つ増えてしまう。
+	 */
+	static List<Command> withoutFurnacePrep(List<Command> commands) {
+		int lastSmelt = -1;
+		for (int i = 0; i < commands.size(); i++) {
+			if (commands.get(i) instanceof Command.Smelt) {
+				lastSmelt = i;
+			}
+		}
+		List<Command> kept = new ArrayList<>();
+		for (int i = 0; i < commands.size(); i++) {
+			Command c = commands.get(i);
+			boolean furnacePrep = c instanceof Command.Craft craft && craft.item().equals(FURNACE)
+				|| c instanceof Command.PlaceBlock place && place.item().equals(FURNACE);
+			if (i > lastSmelt || !furnacePrep) {
+				kept.add(c);
+			}
+		}
+		return kept;
 	}
 
 	/** 保存してあった手順（技・決まり）を読み直す。読めない命令は捨てる。 */
@@ -127,6 +151,31 @@ public final class PlanParser {
 				return Optional.of(new Command.Stop());
 			case "store":
 				return Optional.of(new Command.Store());
+			case "farm":
+				return Optional.of(new Command.Farm());
+			case "fight":
+				return Optional.of(new Command.Fight());
+			case "guard":
+				return Optional.of(new Command.Guard());
+			case "take":
+			case "smelt": {
+				Optional<String> item = Items.resolve(stringOr(o, "item", ""), itemExists);
+				if (item.isEmpty()) {
+					errors.add(where + ": 知らないアイテム「" + stringOr(o, "item", "") + "」");
+					return Optional.empty();
+				}
+				// count を省いたら「あるだけ全部」
+				int count = clampCount(o, where, errors, 0);
+				if (name.equals("take")) {
+					return Optional.of(new Command.Take(item.get(), count));
+				}
+				Optional<String> result = Smelting.resultFor(item.get());
+				if (result.isEmpty()) {
+					errors.add(where + ": " + item.get() + " はかまどで焼くものではない");
+					return Optional.empty();
+				}
+				return Optional.of(new Command.Smelt(result.get(), count));
+			}
 			case "say": {
 				String text = stringOr(o, "text", stringOr(o, "say", ""));
 				if (text.isBlank()) {
@@ -164,6 +213,10 @@ public final class PlanParser {
 					return Optional.empty();
 				}
 				if (name.equals("craft") && !Recipes.canCraft(item.get())) {
+					if (Smelting.isProduct(item.get())) {
+						// ガラスや木炭のように、クラフトではなく焼いて作るもの
+						return Optional.of(new Command.Smelt(item.get(), count));
+					}
 					errors.add(where + ": " + item.get() + " の作り方を知らない");
 					return Optional.empty();
 				}

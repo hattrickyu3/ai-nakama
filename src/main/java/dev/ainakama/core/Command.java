@@ -72,6 +72,41 @@ public sealed interface Command {
 		}
 	}
 
+	/** 近くのチェストから取り出す。count が 0 ならあるだけ全部。 */
+	record Take(String item, int count) implements Command {
+		public String describe() {
+			return "take " + item + (count > 0 ? " " + count : "");
+		}
+	}
+
+	/** かまどで焼く。item は焼いてできるもののID。count が 0 なら、持っている材料を全部。 */
+	record Smelt(String item, int count) implements Command {
+		public String describe() {
+			return "smelt " + item + (count > 0 ? " " + count : "");
+		}
+	}
+
+	/** 畑の世話。育ちきった作物を収穫して、同じものを植え直す。 */
+	record Farm() implements Command {
+		public String describe() {
+			return "farm";
+		}
+	}
+
+	/** 近くの敵を倒す。いなくなったら終わり。 */
+	record Fight() implements Command {
+		public String describe() {
+			return "fight";
+		}
+	}
+
+	/** プレイヤーについていき、近づく敵を倒す。stop か新しい指示が来るまで続く。 */
+	record Guard() implements Command {
+		public String describe() {
+			return "guard";
+		}
+	}
+
 	record Say(String text) implements Command {
 		public String describe() {
 			return "say " + text;

@@ -2,6 +2,7 @@ package dev.ainakama.world;
 
 import dev.ainakama.core.Items;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -99,6 +100,29 @@ public final class Inv {
 			}
 		}
 		return false;
+	}
+
+	/** 武器の材質。あとに書いたものほど強い。 */
+	private static final List<String> WEAPON_TIERS = List.of("wooden", "golden", "stone", "copper", "iron", "diamond", "netherite");
+
+	/** 持っている中でいちばん強い剣か斧。なければ空のスタック（素手）。同じ材質なら剣を選ぶ。 */
+	public static ItemStack bestWeapon(Container inv) {
+		ItemStack best = ItemStack.EMPTY;
+		int bestScore = Integer.MIN_VALUE;
+		for (int i = 0; i < inv.getContainerSize(); i++) {
+			ItemStack s = inv.getItem(i);
+			String id = s.isEmpty() ? "" : idOf(s.getItem());
+			boolean sword = id.endsWith("_sword");
+			if (!sword && !id.endsWith("_axe")) {
+				continue;
+			}
+			int score = WEAPON_TIERS.indexOf(id.substring(0, id.lastIndexOf('_'))) * 2 + (sword ? 1 : 0);
+			if (score > bestScore) {
+				best = s;
+				bestScore = score;
+			}
+		}
+		return best;
 	}
 
 	public static boolean isTool(ItemStack s) {

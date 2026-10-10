@@ -24,7 +24,8 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 @EnabledIfSystemProperty(named = "ainakama.live", matches = "true")
 class LiveModelEval {
 	private static final Set<String> ITEMS = Set.of("oak_log", "oak_planks", "stick", "crafting_table", "chest", "cobblestone",
-		"coal", "torch", "wooden_pickaxe", "stone_pickaxe", "furnace", "dirt", "sand", "wheat", "bread", "oak_fence", "oak_door", "raw_iron", "iron_ingot", "white_wool");
+		"coal", "torch", "wooden_pickaxe", "stone_pickaxe", "furnace", "dirt", "sand", "wheat", "bread", "oak_fence", "oak_door", "raw_iron", "iron_ingot", "white_wool",
+		"glass", "charcoal", "stone", "wheat_seeds", "beef", "cooked_beef");
 
 	private static final List<String> REQUESTS = List.of(
 		"石のツルハシがほしいな",
@@ -38,7 +39,13 @@ class LiveModelEval {
 		"扉をもう1つ作って、私が見ているところに付けて",
 		"鉄を少し掘ってきてほしい",
 		"冬支度をして",
-		"キャンプの準備をして");
+		"キャンプの準備をして",
+		"チェストにある石を少し持ってきてくれる？",
+		"砂を焼いてガラスにしておいてほしいな",
+		"鉄のインゴットが3つ必要なんだ",
+		"畑の小麦が育ったみたいだから、お願いできる？",
+		"ゾンビが来た！助けて！",
+		"これから洞窟に行くから、そばで守っていてね");
 
 	@Test
 	void evaluate() {

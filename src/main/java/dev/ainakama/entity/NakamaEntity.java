@@ -78,6 +78,8 @@ public class NakamaEntity extends PathfinderMob implements InventoryCarrier, Tas
 		return Mob.createMobAttributes()
 			.add(Attributes.MAX_HEALTH, 40.0)
 			.add(Attributes.MOVEMENT_SPEED, 0.5)
+			// 素手でたたいたときの強さ。剣や斧を持つと、その分が足される
+			.add(Attributes.ATTACK_DAMAGE, 2.0)
 			.add(Attributes.FOLLOW_RANGE, 64.0);
 	}
 

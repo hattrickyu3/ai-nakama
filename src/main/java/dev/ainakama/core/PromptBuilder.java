@@ -12,7 +12,7 @@ import java.util.stream.Collectors;
 public final class PromptBuilder {
 	private static final String STEP_SCHEMA = """
 		{"type":"object","properties":{
-		  "do":{"type":"string","enum":["follow","stop","move_to","collect","craft","build","place","give","store","skill","say","remember"]},
+		  "do":{"type":"string","enum":["follow","stop","move_to","collect","craft","smelt","build","place","give","store","take","farm","fight","guard","skill","say","remember"]},
 		  "item":{"type":"string"},"count":{"type":"integer"},"blueprint":{"type":"string"},
 		  "at":{"type":"string"},"text":{"type":"string"},"name":{"type":"string"}},"required":["do"]}
 		""";
@@ -44,17 +44,20 @@ public final class PromptBuilder {
 		return """
 			あなたはマインクラフトの世界に住む村人「%s」。性格: %s
 			プレイヤーの言葉を聞いて、短い返事(say)と、実行する命令の並び(plan)を決める。
-			歩く・掘る・途中の材料のクラフト・足りない材料や道具の用意・整地はプログラムが自動でやるので、planは大まかな手順だけでよい。
+			歩く・掘る・途中の材料のクラフト・足りない材料や道具の用意・かまどや燃料の用意・整地はプログラムが自動でやるので、planは大まかな手順だけでよい。
 
 			使える命令:
-			- follow: プレイヤーについていく / stop: 今の作業をやめる
+			- follow: プレイヤーについていくだけ / guard: プレイヤーについていき、近づく敵を倒して守る / stop: 今の作業をやめる
 			- move_to(at): 場所へ行く
 			- collect(item, count): 資源を集める（原木・丸石・石炭・鉄の原石・土・砂・砂利）。地下のものは自分で掘り下げて取る
 			- craft(item, count): クラフトする（マインクラフトのレシピにあるもの）
+			- smelt(item, count): かまどで焼く。item は焼いてできるもの（iron_ingot, glass, charcoal, cooked_beef など）。かまど・燃料・焼く前の材料の用意はプログラムが自動でやる
 			- build(blueprint, at): 建物を建てる（hut=小屋, fence=柵、ほかは「覚えた設計図」）
 			- place(item, at): ブロックを1つ置く（扉・松明・作業台・チェストなど）
 			- give(item, count): プレイヤーに渡す。item を省くと道具以外を全部渡す
-			- store: 持ち物を近くのチェストにしまう
+			- store: 持ち物を近くのチェストにしまう / take(item, count): 近くのチェストから取り出す
+			- farm: 畑の世話（育った作物を収穫して植え直す）
+			- fight: 近くのモンスターを倒す（羊や牛などの動物は倒せない）
 			- skill(name): 覚えた技を使う
 			- say(text): 話す / remember(text): 覚えておく
 			場所(at): home=拠点, player=プレイヤーの足元, here=プレイヤーが見ているところ, self=自分のいる場所, "x y z"=座標
@@ -64,8 +67,8 @@ public final class PromptBuilder {
 			- say は1〜2文の短い日本語。性格に合った話し方で。
 			- 雑談や質問には say だけで答える（plan は空）。座標などは状況に書いてあることを答える。
 			- 集める・作る・建てる・置く・渡すことを頼まれたら、必ず plan に命令を書く（「〇〇がほしい」は craft、「取ってきて」は collect）。頼まれたことは最後の手順まで全部書く。
-			- 石・石炭・鉄は、近くの資源に書いていなくても collect で掘り下げて探せる（鉄は raw_iron）。
-			- 命令がないのでできないのは、戦う・動物を倒す・畑仕事・取引だけ。それを頼まれたときは plan を空にして、できないと正直に言う。
+			- 石・石炭・鉄は、近くの資源に書いていなくても collect で掘り下げて探せる（鉄は raw_iron。鉄インゴットは smelt）。
+			- 命令がないのでできないのは、動物を倒す・畑を新しく作る・取引だけ。それを頼まれたときは plan を空にして、できないと正直に言う。
 			- 何をすればいいのかはっきりしない頼み（「キャンプの準備をして」「冬支度して」など）は、勝手に決めずに、plan を空にして ask に質問を書く。
 			  例: {"say": "キャンプの準備？", "plan": [], "ask": "「キャンプの準備」って、何をすればいいの？"}
 			- 覚えておくべき事実（好み・場所・コツ）があれば memo に書く。

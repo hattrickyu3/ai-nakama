@@ -7,6 +7,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -82,6 +83,15 @@ public final class Terrain {
 			return state.hasProperty(LeavesBlock.PERSISTENT) && !state.getValue(LeavesBlock.PERSISTENT);
 		}
 		return state.is(BlockTags.LOGS) && Sources.isNaturalLog(level, pos);
+	}
+
+	/**
+	 * 収穫してよい作物か：育ちきった小麦・ニンジン・ジャガイモ・ビートルートなど。
+	 * 畑はプレイヤーが作ったものだが、育ちきった作物だけは、頼まれたときに収穫してよい（収穫したら植え直す）。
+	 * 育っている途中のものは false。
+	 */
+	public static boolean isRipeCrop(BlockState state) {
+		return state.getBlock() instanceof CropBlock crop && crop.isMaxAge(state);
 	}
 
 	/** 空気や草など、体が通れてブロックを置ける場所か（水や溶岩は含まない）。 */

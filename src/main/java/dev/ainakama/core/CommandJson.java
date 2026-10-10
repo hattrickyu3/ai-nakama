@@ -21,6 +21,23 @@ public final class CommandJson {
 			case Command.Follow f -> o.addProperty("do", "follow");
 			case Command.Stop s -> o.addProperty("do", "stop");
 			case Command.Store s -> o.addProperty("do", "store");
+			case Command.Farm f -> o.addProperty("do", "farm");
+			case Command.Fight f -> o.addProperty("do", "fight");
+			case Command.Guard g -> o.addProperty("do", "guard");
+			case Command.Take t -> {
+				o.addProperty("do", "take");
+				o.addProperty("item", t.item());
+				if (t.count() > 0) {
+					o.addProperty("count", t.count());
+				}
+			}
+			case Command.Smelt s -> {
+				o.addProperty("do", "smelt");
+				o.addProperty("item", s.item());
+				if (s.count() > 0) {
+					o.addProperty("count", s.count());
+				}
+			}
 			case Command.MoveTo m -> {
 				o.addProperty("do", "move_to");
 				o.addProperty("at", m.place().describe());

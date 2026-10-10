@@ -29,7 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 実際にゲームを起動して、仲間が集める・作る・掘り下げる・整地して建てる・渡す・置く・覚える、ができるかを確かめる。
+ * 実際にゲームを起動して、仲間が集める・作る・掘り下げる・整地して建てる・渡す・置く・取り出す・焼く・畑仕事・戦う・覚える、ができるかを確かめる。
  * 平らなテスト用ワールドに木・丘・でこぼこの地面を作り、決まった計画やチャットの言葉を渡して結果を見る。
  */
 public class NakamaClientGameTest implements FabricClientGameTest {
@@ -87,6 +87,42 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 				n -> n.level().getBlockState(tablePos).is(Blocks.CRAFTING_TABLE), LONG);
 			step("持ち物をプレイヤーに渡す", List.of(new Command.Give(null, 0)),
 				n -> Inv.count(player(n).getInventory(), "cobblestone") >= 6, LONG);
+
+			// チェストから取り出す・かまどで焼く・畑仕事・戦う（どれも決まった言い方なので、AIは使わない）
+			int callsBeforeNew = aiCalls();
+			say("チェストから鉄の原石を3個取り出す", "ミナ、チェストから鉄の原石を3個出して",
+				n -> Inv.count(n.getInventory(), "raw_iron") >= 3, LONG);
+			say("鉄の原石を焼く（かまどはチェストの丸石で作って置く。燃料の原木は自分で集める）", "ミナ、鉄の原石を3個焼いて",
+				n -> n.isIdle() && Inv.count(n.getInventory(), "iron_ingot") >= 3, LONG * 2);
+			check("かまどが置いてある", server.computeOnServer(s -> count(nakama(s), base, 6, "furnace")) >= 1);
+			check("チェストの丸石を使った", server.computeOnServer(s -> Inv.count(chest(s), "cobblestone")) == 0);
+			step("鉄のツルハシを作る（焼いた鉄インゴットを使う）", List.of(new Command.Craft("iron_pickaxe", 1)),
+				n -> Inv.count(n.getInventory(), "iron_pickaxe") >= 1, LONG);
+
+			BlockPos field = base.offset(-9, 0, -6);
+			server.runOnServer(s -> plantField(s, field));
+			check("テスト用の畑ができている（育ちきった小麦が4マス）", server.computeOnServer(s -> ripeCrops(nakama(s), field)) == 4);
+			server.runOnServer(s -> nakama(s).getInventory().addItem(new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.WHEAT_SEEDS, 8)));
+			say("畑の世話をする（育った小麦を収穫して植え直し、空いた畑に種を植える）", "ミナ、畑仕事して",
+				n -> n.isIdle() && Inv.count(n.getInventory(), "wheat") >= 4, LONG);
+			int[] crops = server.computeOnServer(s -> new int[] {count(nakama(s), field, 4, "wheat"), ripeCrops(nakama(s), field)});
+			LOG.info("[ainakama-test] 畑: 小麦 {}マス、育ちきったもの {}マス", crops[0], crops[1]);
+			check("収穫したあとに植え直し、空いていた畑にも植えた（6マス全部に小麦）", crops[0] == 6);
+			check("育ちきった小麦は残っていない", crops[1] == 0);
+
+			server.runCommand("difficulty easy");
+			UUID huskId = server.computeOnServer(s -> spawnHusk(s, base.offset(-4, 0, 4)));
+			context.waitTicks(10);
+			check("敵（ハスク）が出ている", server.computeOnServer(s -> s.overworld().getEntity(huskId) != null));
+			say("近くの敵を倒す", "ミナ、敵を倒して", n -> {
+				var husk = ((ServerLevel) n.level()).getEntity(huskId);
+				return husk == null || !husk.isAlive();
+			}, LONG);
+			server.runCommand("difficulty peaceful");
+			chat("ミナ、守って");
+			server.waitFor(s -> nakama(s).currentJob().contains("守る"), 100);
+			LOG.info("[ainakama-test] OK: 「守って」が通じた");
+			check("新しい4つの動きで、AIを1回も呼んでいない", aiCalls() == callsBeforeNew);
 
 			// 建物を見せて覚える
 			BlockPos demo = base.offset(3, 0, 3);
@@ -190,6 +226,53 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 		}
 	}
 
+	/** チャットで頼んで、終わるのを待つ。 */
+	private void say(String name, String text, Predicate<NakamaEntity> done, int timeout) {
+		LOG.info("[ainakama-test] START: {}（「{}」）", name, text);
+		chat(text);
+		int ticks = waitWithProgress(done, timeout);
+		LOG.info("[ainakama-test] OK: {}（{}tick） 持ち物: {}", name, ticks,
+			server.computeOnServer(s -> Inv.counts(nakama(s).getInventory())));
+	}
+
+	/** 3×2マスの畑。4マスは育ちきった小麦、1マスは育っている途中、1マスは空き。 */
+	private static void plantField(MinecraftServer server, BlockPos corner) {
+		ServerLevel level = server.overworld();
+		BlockState soil = Blocks.FARMLAND.defaultBlockState().setValue(net.minecraft.world.level.block.FarmlandBlock.MOISTURE, 7);
+		int i = 0;
+		for (BlockPos p : BlockPos.betweenClosed(corner, corner.offset(2, 0, 1))) {
+			level.setBlockAndUpdate(p.below(), soil);
+			if (i < 5) {
+				level.setBlockAndUpdate(p, Blocks.WHEAT.defaultBlockState().setValue(net.minecraft.world.level.block.CropBlock.AGE, i < 4 ? 7 : 2));
+			}
+			i++;
+		}
+	}
+
+	private static int ripeCrops(NakamaEntity n, BlockPos center) {
+		int count = 0;
+		for (BlockPos p : BlockPos.betweenClosed(center.offset(-4, -1, -4), center.offset(4, 1, 4))) {
+			if (Terrain.isRipeCrop(n.level().getBlockState(p))) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	private static UUID spawnHusk(MinecraftServer server, BlockPos pos) {
+		ServerLevel level = server.overworld();
+		var husk = net.minecraft.world.entity.EntityTypes.HUSK.create(level, EntitySpawnReason.COMMAND);
+		husk.snapTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, 0, 0);
+		husk.setPersistenceRequired();
+		level.addFreshEntity(husk);
+		return husk.getUUID();
+	}
+
+	/** 拠点のそばに置いたチェスト（鉄の原石4個と丸石8個が入っている）。 */
+	private net.minecraft.world.Container chest(MinecraftServer server) {
+		return (net.minecraft.world.Container) server.overworld().getBlockEntity(base.offset(-2, 0, 6));
+	}
+
 	private static void check(String what, boolean ok) {
 		if (!ok) {
 			throw new AssertionError("NG: " + what);
@@ -216,8 +299,8 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 		Blueprints.clearLearned();
 		ModServices.skills().all().forEach(sk -> ModServices.skills().forget(sk.name()));
 
-		// 木：拠点から12〜16マス離れたところに、高さ3の幹＋葉っぱを15本（原木45本分）
-		for (int i = 0; i < 15; i++) {
+		// 木：拠点から12〜16マス離れたところに、高さ3の幹＋葉っぱを21本（原木63本分）
+		for (int i = 0; i < 21; i++) {
 			BlockPos trunk = base.offset(12 + (i % 3) * 2, 0, -9 + (i / 3) * 3);
 			for (int h = 0; h < 3; h++) {
 				level.setBlockAndUpdate(trunk.above(h), Blocks.OAK_LOG.defaultBlockState());
@@ -245,6 +328,13 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 			level.setBlockAndUpdate(site.offset(-2, h, -1), Blocks.OAK_LOG.defaultBlockState());
 		}
 		level.setBlockAndUpdate(site.offset(-2, 3, -1), naturalLeaves());
+
+		// チェスト：鉄の原石4個と丸石8個（取り出す・かまどを作る、のテスト用）
+		BlockPos chestPos = base.offset(-2, 0, 6);
+		level.setBlockAndUpdate(chestPos, Blocks.CHEST.defaultBlockState());
+		var chest = (net.minecraft.world.Container) level.getBlockEntity(chestPos);
+		chest.setItem(0, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.RAW_IRON, 4));
+		chest.setItem(1, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.COBBLESTONE, 8));
 
 		NakamaEntity nakama = ModEntities.NAKAMA.create(level, EntitySpawnReason.COMMAND);
 		nakama.snapTo(base.getX() + 0.5, base.getY(), base.getZ() + 3.5, 180, 0);

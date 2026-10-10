@@ -34,7 +34,7 @@ public final class TeachParser {
 	private static final Pattern CLAUSE_SPLIT = Pattern.compile("、|。|,|そのあと|その後|それから|次に|つぎに|してから|(?<=[てで])から");
 	/** 「木を集めて作業台を作る」のように読点なしで続く文を、頼む形の動詞のあとで区切るためのもの。長い形を先に並べる。 */
 	private static final Pattern JOINED = Pattern.compile(
-		"(取ってきて|掘ってきて|切ってきて|ついてきて|集めて|あつめて|掘って|切って|作って|つくって|建てて|置いて|渡して|しまって|入れて|帰って|戻って)(?=.)");
+		"(取ってきて|掘ってきて|切ってきて|ついてきて|焼いてきて|持ってきて|取り出して|収穫して|集めて|あつめて|掘って|切って|作って|つくって|建てて|置いて|渡して|しまって|入れて|帰って|戻って|焼いて|出して|倒して|守って|戦って)(?=.)");
 	private static final Pattern CLAUSE_HEAD = Pattern.compile("^(から|そして|あと|で|、)+");
 	private static final Pattern REQUEST_END = Pattern.compile("(て|で|てね|でね|てよ|ください|てほしい|て欲しい|こと)[。!！]*$");
 	private static final Pattern TAIL = Pattern.compile("(っていうこと|ということ|ってこと|こと)?(だよ|なんだよ|なんだ|です|だ|ね|よ|んだよ)?[。!！]*$");
@@ -69,6 +69,14 @@ public final class TeachParser {
 		TO_REQUEST.put("戻る", "戻って");
 		TO_REQUEST.put("止まる", "止まって");
 		TO_REQUEST.put("ついてくる", "ついてきて");
+		TO_REQUEST.put("持ってくる", "持ってきて");
+		TO_REQUEST.put("取り出す", "取り出して");
+		TO_REQUEST.put("出す", "出して");
+		TO_REQUEST.put("焼く", "焼いて");
+		TO_REQUEST.put("倒す", "倒して");
+		TO_REQUEST.put("守る", "守って");
+		TO_REQUEST.put("戦う", "戦って");
+		TO_REQUEST.put("する", "して");
 	}
 
 	private TeachParser() {
