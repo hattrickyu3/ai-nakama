@@ -84,14 +84,24 @@ AIに渡すのは、今回の言葉に関係がありそうな技と知識だけ
 
 | 項目 | 初期値 | 内容 |
 |---|---|---|
-| provider | `ollama` | `ollama` / `anthropic` / `openai`（OpenAI互換のサービス） |
+| provider | `ollama` | `ollama` / `anthropic` / `openai`（OpenAI互換のサービス） / `claude-cli`（下の説明を参照） |
 | baseUrl | `http://localhost:11434` | 接続先のURL |
-| model | `qwen3.5:4b` | 使うモデル |
+| model | `qwen3.5:4b` | 使うモデル。`claude-cli` のときは `haiku` `sonnet` など |
+| claudeCommand | `claude` | `claude-cli` のときに動かすコマンド |
 | apiKey | 空 | APIキー。環境変数 `AINAKAMA_API_KEY` でもよい（そちらが優先） |
 | dailyCallLimit | 300 | 1日にAIを呼べる回数（全員の合計） |
 | defaultPersonality | 明るくて元気… | 仲間の性格 |
 
 APIキーはModの中には入っていません。配るときもキーを入れないでください。
+
+### Claude のサブスクで動かす（`claude-cli`）
+
+PCに Claude Code が入っていてログイン済みなら、`provider` を `claude-cli`、`model` を `haiku` にすると、APIキーなしで Claude に考えてもらえます。小さいAIより頼みをよく理解します。
+
+- 呼ぶたびに `claude` コマンドを起動するので、返事まで5〜6秒かかります（Ollama は1〜2秒）
+- サブスクの利用枠を使います（Claude Code と共通）。呼びすぎないよう `dailyCallLimit` はそのまま効きます
+- ツールをすべて切って呼ぶので、AIがPCのファイルやコマンドに触ることはありません
+- 環境変数 `ANTHROPIC_API_KEY` があっても、このコマンドには渡しません（APIの料金で動いてしまわないように）
 
 AIを呼ぶたびに `logs/ainakama-usage.csv` に送った量・返ってきた量・時間を記録します。
 

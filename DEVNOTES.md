@@ -8,6 +8,9 @@
 - MCの逆コンパイル済みソース：scratchpad の `mcsrc/common`, `mcsrc/client`（`./gradlew genSources` で作り直せる）
 - ゲームテスト：サーバー版は eula=true が必要で、利用規約の同意にあたるのでユーザーの確認待ち。クライアント版ゲームテストを使う
 
+- AIの接続先に `claude-cli` を足した（ClaudeCliClient）。PCの Claude Code を `claude -p` で呼び、サブスクのログインで動く。`--bare` は使えない（ログイン情報を読まなくなる）。ふだんのフックや設定を巻き込まないよう `--setting-sources ""`、PCに触らせないよう `--tools ""` を付ける。説明文は `--system-prompt-file`、今回の言葉は標準入力で渡す
+- LiveModelEval を Claude で動かす：`./gradlew test --no-daemon -Dainakama.live=true -Dainakama.provider=claude-cli -Dainakama.model=haiku --tests '*LiveModelEval*'`。2026-10-10 は haiku（Haiku 5.5）で 18/18、中身も頼みどおり。1回5〜6秒（うち約4秒はコマンドの起動）
+
 ## 設計（設計.md の要点）
 - AIは計画（命令の並び）だけ。実行はプログラム
 - だれに向けた言葉かは Addressee が読む（ChatRouter が届ける）。プレイヤーが1人だけのときは名前なしでも届く：最後に話しかけた仲間 → いなければいちばん近くの仲間。2人以上のときは名前で始めた言葉だけ

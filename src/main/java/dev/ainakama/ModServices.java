@@ -2,7 +2,7 @@ package dev.ainakama;
 
 import dev.ainakama.ai.AiConfig;
 import dev.ainakama.ai.AiService;
-import dev.ainakama.ai.HttpLlmClient;
+import dev.ainakama.ai.LlmClient;
 import dev.ainakama.ai.UsageLog;
 import dev.ainakama.core.CallBudget;
 import dev.ainakama.core.PlanParser;
@@ -40,7 +40,7 @@ public final class ModServices {
 			? ai.budget()
 			: new CallBudget(0, cfg.dailyCallLimit, ZoneId.systemDefault());
 		ai = new AiService(
-			new HttpLlmClient(cfg),
+			LlmClient.create(cfg, dir.resolve("ainakama-claude-cli")),
 			budget,
 			parser,
 			usage,

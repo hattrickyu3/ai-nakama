@@ -18,11 +18,13 @@ import java.util.Locale;
 public final class AiConfig {
 	public static final String API_KEY_ENV = "AINAKAMA_API_KEY";
 
-	/** "ollama" / "anthropic" / "openai" */
+	/** "ollama" / "anthropic" / "openai" / "claude-cli"（PCの Claude Code を呼ぶ。サブスクのログインを使うので APIキーがいらない） */
 	public String provider = "ollama";
 	public String baseUrl = "http://localhost:11434";
 	public String model = "qwen3.5:4b";
 	public String apiKey = "";
+	/** provider が claude-cli のときに動かすコマンド。 */
+	public String claudeCommand = "claude";
 	public double temperature = 0.2;
 	public int maxOutputTokens = 400;
 	public int timeoutSeconds = 120;
@@ -56,11 +58,15 @@ public final class AiConfig {
 	List<String> validate() {
 		List<String> problems = new ArrayList<>();
 		provider = provider == null ? "ollama" : provider.trim().toLowerCase(Locale.ROOT);
-		if (!List.of("ollama", "anthropic", "openai").contains(provider)) {
+		if (!List.of("ollama", "anthropic", "openai", ClaudeCliClient.PROVIDER).contains(provider)) {
 			problems.add("provider「" + provider + "」は使えないので ollama にします");
 			provider = "ollama";
 		}
-		if (baseUrl == null || !(baseUrl.startsWith("http://") || baseUrl.startsWith("https://"))) {
+		boolean cli = provider.equals(ClaudeCliClient.PROVIDER);
+		if (claudeCommand == null || claudeCommand.isBlank()) {
+			claudeCommand = "claude";
+		}
+		if (!cli && (baseUrl == null || !(baseUrl.startsWith("http://") || baseUrl.startsWith("https://")))) {
 			problems.add("baseUrl が正しくないので初期値にします");
 			baseUrl = defaultBaseUrl(provider);
 		}
@@ -74,7 +80,7 @@ public final class AiConfig {
 		maxOutputTokens = Math.max(100, Math.min(2000, maxOutputTokens));
 		timeoutSeconds = Math.max(10, Math.min(600, timeoutSeconds));
 		dailyCallLimit = Math.max(1, dailyCallLimit);
-		if (!provider.equals("ollama") && effectiveApiKey().isBlank()) {
+		if (!provider.equals("ollama") && !cli && effectiveApiKey().isBlank()) {
 			problems.add(provider + " を使うには APIキーが必要です（設定ファイルの apiKey か環境変数 " + API_KEY_ENV + "）");
 		}
 		return problems;

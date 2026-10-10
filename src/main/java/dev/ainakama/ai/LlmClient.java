@@ -1,5 +1,6 @@
 package dev.ainakama.ai;
 
+import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 
 /** AIの接続先。返事は別のスレッドで届くので、ゲームを止めずに待てる。 */
@@ -19,4 +20,13 @@ public interface LlmClient {
 	CompletableFuture<Response> complete(Request request);
 
 	String describe();
+
+	/**
+	 * 設定に合った接続先を作る。
+	 *
+	 * @param workDir claude-cli のときに、コマンドを動かす場所
+	 */
+	static LlmClient create(AiConfig config, Path workDir) {
+		return config.provider.equals(ClaudeCliClient.PROVIDER) ? new ClaudeCliClient(config, workDir) : new HttpLlmClient(config);
+	}
 }

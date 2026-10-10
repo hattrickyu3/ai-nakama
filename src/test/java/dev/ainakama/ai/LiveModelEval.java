@@ -50,10 +50,11 @@ class LiveModelEval {
 	@Test
 	void evaluate() {
 		AiConfig cfg = new AiConfig();
+		cfg.provider = System.getProperty("ainakama.provider", cfg.provider);
 		cfg.model = System.getProperty("ainakama.model", "qwen3.5:4b");
 		PlanParser parser = new PlanParser(ITEMS::contains);
 		UsageLog usage = new UsageLog(Path.of("build", "live-eval-usage.csv"));
-		AiService service = new AiService(new HttpLlmClient(cfg), new CallBudget(0, 1000, ZoneId.systemDefault()),
+		AiService service = new AiService(LlmClient.create(cfg, Path.of("build", "claude-cli")), new CallBudget(0, 1000, ZoneId.systemDefault()),
 			parser, usage, cfg.model, System::currentTimeMillis);
 
 		Map<String, Integer> inv = new LinkedHashMap<>();

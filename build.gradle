@@ -37,7 +37,7 @@ dependencies {
 test {
 	useJUnitPlatform()
 	// LiveModelEval 用（-Dainakama.live=true -Dainakama.model=...）
-	["ainakama.live", "ainakama.model"].each { key ->
+	["ainakama.live", "ainakama.model", "ainakama.provider"].each { key ->
 		def value = providers.systemProperty(key).getOrNull()
 		if (value != null) {
 			systemProperty key, value
