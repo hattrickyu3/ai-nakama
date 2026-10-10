@@ -74,7 +74,8 @@ public final class NakamaCommands {
 		nakama.snapTo(player.getX() + 1.5, player.getY(), player.getZ(), player.getYRot() + 180, 0);
 		nakama.setup(name, player.blockPosition());
 		level.addFreshEntity(nakama);
-		nakama.say("はじめまして、" + name + "だよ！「" + name + "、ついてきて」みたいに話しかけてね。");
+		String example = ChatRouter.canOmitName(player) ? "ついてきて" : name + "、ついてきて";
+		nakama.say("はじめまして、" + name + "だよ！チャットで「" + example + "」みたいに話しかけてね。");
 		return 1;
 	}
 

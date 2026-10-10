@@ -133,6 +133,8 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 				level.setBlockAndUpdate(demo, Blocks.COBBLESTONE.defaultBlockState());
 				level.setBlockAndUpdate(demo.above(), Blocks.COBBLESTONE.defaultBlockState());
 				level.setBlockAndUpdate(demo.above(2), Blocks.OAK_FENCE.defaultBlockState());
+				// 見せている間に近くの畑の小麦が育っても、建物には数えない
+				level.setBlockAndUpdate(field, Blocks.WHEAT.defaultBlockState().setValue(net.minecraft.world.level.block.CropBlock.AGE, 5));
 			});
 			context.waitTicks(10);
 			chat("ミナ、これが目印だよ");
@@ -163,6 +165,12 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 			chat("皆ついてきて");
 			server.waitFor(s -> nakama(s).currentJob().contains("ついていく"), 100);
 			LOG.info("[ainakama-test] OK: 「皆ついてきて」が通じた");
+			// プレイヤーが1人だけのときは、名前を付けなくても届く
+			chat("止まって");
+			server.waitFor(s -> !nakama(s).currentJob().contains("ついていく"), 100);
+			chat("ついてきて");
+			server.waitFor(s -> nakama(s).currentJob().contains("ついていく"), 100);
+			LOG.info("[ainakama-test] OK: 名前なしの「止まって」「ついてきて」が通じた");
 			// 言葉で教える（プログラムが読み取るので、AIは使わない）
 			int logsBeforeCamp = server.computeOnServer(s -> Inv.count(nakama(s).getInventory(), "#log"));
 			chat("ミナ、キャンプの準備っていうのは、木を3本集めて、作業台を1個作ることだよ");
