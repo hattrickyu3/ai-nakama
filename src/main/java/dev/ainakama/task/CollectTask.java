@@ -24,6 +24,7 @@ import net.minecraft.world.phys.Vec3;
  * 資源を集める。近くで探す → 歩く → 掘る → 持ち物に入れる、を数がそろうまで繰り返す。
  * ・道具が要るのに持っていなければ「先に道具を作って」と返す
  * ・地表に見当たらない石や鉱石は、階段状に掘り下げて取りに行く
+ * ・近くに見当たらない原木や砂は、まわりを歩いて探しに行く
  * ・高くて届かない原木は、足場を積んで取る
  */
 final class CollectTask implements Task {
@@ -35,6 +36,8 @@ final class CollectTask implements Task {
 	private static final int STUCK_TICKS = 100;
 	private static final int TIME_LIMIT_TICKS = 20 * 60 * 8;
 	private static final int MAX_DIG_STEPS = 60;
+	/** 探しに歩いている間、近くを探し直す間隔。 */
+	private static final int EXPLORE_SEARCH_INTERVAL = 60;
 	/** 真下〜斜め下に立っていて、高さだけが足りないとみなす水平の距離。 */
 	private static final double UNDER_DISTANCE = 2.5;
 	/** 1本の木として最後まで切る原木の数の上限（巨大な木やつながった森を切り続けないように）。 */
@@ -51,7 +54,11 @@ final class CollectTask implements Task {
 	/** いま切っている木の、残りの原木（下から順）。 */
 	private final Deque<BlockPos> tree = new ArrayDeque<>();
 
+	private final Explorer explorer = new Explorer();
 	private Digger digger;
+	private boolean exploring;
+	private boolean wideSearchDue;
+	private int exploreTicks;
 	private boolean searchDue;
 	private int digSteps;
 	private int gathered;
@@ -77,6 +84,10 @@ final class CollectTask implements Task {
 			// 掘り下げている間は、1段下りるごとにだけ探し直す（毎tick探すと重い）
 			return digFor(nakama, level);
 		}
+		if (exploring && !searchDue) {
+			// 探しに歩いている間は、ときどきと、地点に着いたときにだけ探し直す
+			return explore(nakama, level);
+		}
 		if (target == null || !matcher.test(level.getBlockState(target))) {
 			breaker.cancel(nakama, level);
 			searchDue = false;
@@ -87,13 +98,15 @@ final class CollectTask implements Task {
 					return finish(nakama, level, DONE);
 				}
 				target = findNearest(nakama, level, SEARCH_RADIUS);
-				if (target == null && digger == null) {
+				if (target == null && digger == null && (!exploring || wideSearchDue)) {
 					// 近くになければ、もっと遠くまで見渡して歩いていく
 					target = findNearest(nakama, level, WIDE_SEARCH_RADIUS);
 				}
+				wideSearchDue = false;
 				if (target == null) {
 					return digFor(nakama, level);
 				}
+				exploring = false;
 				if (Items.isLog(item)) {
 					startTree(nakama, level, target);
 				}
@@ -132,7 +145,7 @@ final class CollectTask implements Task {
 	/** 見えるところにないので、掘り下げて探す。掘り下げても意味のないもの（原木など）はここで失敗にする。 */
 	private Result digFor(NakamaEntity nakama, ServerLevel level) {
 		if (!Sources.isUnderground(item)) {
-			return finish(nakama, level, failed("が近くに見つからない"));
+			return explore(nakama, level);
 		}
 		if (digger == null) {
 			digger = new Digger();
@@ -154,6 +167,32 @@ final class CollectTask implements Task {
 			}
 			default -> {
 				return finish(nakama, level, failed("を掘りに行けない（水や溶岩、空洞に囲まれている）"));
+			}
+		}
+	}
+
+	/** 近くに見当たらない原木や砂などを、まわりを歩いて探しに行く。 */
+	private Result explore(NakamaEntity nakama, ServerLevel level) {
+		if (!exploring) {
+			exploring = true;
+			if (!explorer.started()) {
+				nakama.say("近くに" + Items.label(item) + "が見当たらないから、少し遠くまで探してくるね。");
+			}
+		}
+		switch (explorer.tick(nakama, level)) {
+			case WALKING -> {
+				if (++exploreTicks % EXPLORE_SEARCH_INTERVAL == 0) {
+					searchDue = true;
+				}
+				return RUNNING;
+			}
+			case ARRIVED -> {
+				searchDue = true;
+				wideSearchDue = true;
+				return RUNNING;
+			}
+			default -> {
+				return finish(nakama, level, failed("を遠くまで探したけれど見つからなかった"));
 			}
 		}
 	}
