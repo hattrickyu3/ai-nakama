@@ -39,13 +39,16 @@ public final class TeachParser {
 	private static final Pattern REQUEST_END = Pattern.compile("(て|で|てね|でね|てよ|ください|てほしい|て欲しい|こと)[。!！]*$");
 	private static final Pattern TAIL = Pattern.compile("(っていうこと|ということ|ってこと|こと)?(だよ|なんだよ|なんだ|です|だ|ね|よ|んだよ)?[。!！]*$");
 
+	/** 「畑仕事を毎日朝にして」のように、きっかけがあとに来る言い方。 */
+	private static final Pattern DAILY = Pattern.compile(
+		"^(?:ここで、?|ここでは、?)?(.+?)を?((?:毎日|毎回)(?:朝|夜)|毎朝|毎晩)に?(?:して|やって)(?:ね|よ|ほしい|ください)?[。!！]*$");
 	private static final Map<Pattern, Trigger> TRIGGERS = new LinkedHashMap<>();
 	/** 「集める」「作ること」のような言い切りの形を、頼む形（〜て）に直す。 */
 	private static final Map<String, String> TO_REQUEST = new LinkedHashMap<>();
 
 	static {
-		trigger("^(夜|暗く)になったら", Trigger.NIGHT);
-		trigger("^(朝|明るく)になったら", Trigger.MORNING);
+		trigger("^(夜|暗く)になったら|^毎晩|^毎日夜に(なったら)?|^夜になるたびに?", Trigger.NIGHT);
+		trigger("^(朝|明るく)になったら|^毎朝|^毎日朝に(なったら)?|^朝になるたびに?", Trigger.MORNING);
 		trigger("^雨が(降ったら|ふったら|降ってきたら)", Trigger.RAIN);
 		trigger("^(敵|モンスター|ゾンビ)が(来たら|きたら|近づいたら|出たら|でたら|いたら)", Trigger.ENEMY_NEAR);
 		trigger("^(持ち物|荷物|インベントリ)が(いっぱい|満タン)に?なったら", Trigger.INVENTORY_FULL);
@@ -93,6 +96,11 @@ public final class TeachParser {
 			return Optional.empty();
 		}
 		String s = QuickCommands.normalize(text.replace("、", "\u0001")).replace("\u0001", "、");
+		Matcher daily = DAILY.matcher(s);
+		if (daily.matches()) {
+			// 「畑仕事を毎日朝にして」→「朝になったら畑仕事して」
+			s = (daily.group(2).contains("朝") ? "朝になったら" : "夜になったら") + daily.group(1) + "して";
+		}
 		for (var e : TRIGGERS.entrySet()) {
 			Matcher m = e.getKey().matcher(s);
 			if (m.find()) {

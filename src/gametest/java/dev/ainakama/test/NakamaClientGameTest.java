@@ -58,6 +58,14 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 			server.waitFor(s -> nakama(s).isIdle(), LONG);
 			check("木を切り残していない（残っている原木は、手つかずの木の分だけ）",
 				server.computeOnServer(s -> count(nakama(s), base.offset(14, 0, 0), 10, "oak_log")) % 3 == 0);
+			// 近くに木がない場所（いちばん近い木まで約70マス）から頼むと、まわりを歩いて探しに行く
+			int logsBeforeExplore = server.computeOnServer(s -> Inv.count(nakama(s).getInventory(), "#log"));
+			server.runOnServer(s -> nakama(s).snapTo(base.getX() + 14.5, base.getY(), base.getZ() + 80.5, 0, 0));
+			context.waitTicks(10);
+			step("近くに木がないので、遠くまで探しに行って原木を3本集める", List.of(new Command.Collect("oak_log", 3)),
+				n -> n.isIdle() && Inv.count(n.getInventory(), "#log") >= logsBeforeExplore + 3, LONG);
+			server.runOnServer(s -> nakama(s).snapTo(base.getX() + 0.5, base.getY(), base.getZ() + 3.5, 180, 0));
+			context.waitTicks(10);
 			step("木のツルハシを作る（本体のレシピで、板材・棒・作業台を自動で作る）", List.of(new Command.Craft("wooden_pickaxe", 1)),
 				n -> Inv.count(n.getInventory(), "wooden_pickaxe") >= 1, LONG);
 			step("はしごを作る（手書きの表にはなかったレシピ）", List.of(new Command.Craft("ladder", 3)),
@@ -113,6 +121,13 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 			LOG.info("[ainakama-test] 畑: 小麦 {}マス、育ちきったもの {}マス", crops[0], crops[1]);
 			check("収穫したあとに植え直し、空いていた畑にも植えた（6マス全部に小麦）", crops[0] == 6);
 			check("育ちきった小麦は残っていない", crops[1] == 0);
+
+			// 新しい畑：何もない草地を耕して、持っている種をまく
+			BlockPos newField = base.offset(8, 0, -6);
+			step("新しい畑を耕して種をまく（クワは自分で作る）",
+				List.of(new Command.Till(new Place.Coords(newField.getX(), newField.getY(), newField.getZ()), 6), new Command.Farm()),
+				n -> n.isIdle() && count(n, newField, 6, "farmland") >= 6 && count(n, newField, 6, "wheat") >= 6, LONG);
+			check("クワを自分で作った", server.computeOnServer(s -> Inv.count(nakama(s).getInventory(), "wooden_hoe")) >= 1);
 
 			// 動物を狩る：牛が4頭。また増やせるよう2頭は残す決まりなので、3頭頼んでも2頭までしか狩らない
 			for (int i = 0; i < 4; i++) {

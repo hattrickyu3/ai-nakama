@@ -56,7 +56,14 @@ public final class QuickCommands {
 	private static final Pattern GIVE = Pattern.compile("^(.+?)を" + NUM + UNIT + "(私に|僕に|俺に|こっちに|目の前に)?(渡して|わたして|ちょうだい|頂戴|落として|ドロップして)" + END);
 	private static final Pattern COLLECT = Pattern.compile("^(.+?)を" + NUM + UNIT + "(集めて|あつめて|取ってきて|とってきて|掘ってきて|掘って|切ってきて|切って)" + END);
 	private static final Pattern CRAFT = Pattern.compile("^(.+?)を" + NUM + UNIT + "(作って|つくって|クラフトして)" + END);
-	private static final Pattern BUILD = Pattern.compile("^(ここに|拠点に)?(.+?)を(建てて|たてて|作って|つくって)" + END);
+	/** 「ここに」「この辺に」「拠点の近くに」のような、場所の言い方。拠点で始まれば拠点、ほかは見ているところ。 */
+	private static final String WHERE = "((?:ここら辺|ここらへん|このへん|この辺り|この辺|このあたり|ここ|そこ|拠点(?:の(?:近く|そば|横|隣))?)(?:に|を|で))?";
+	private static final Pattern BUILD = Pattern.compile("^" + WHERE + "(.+?)を(建てて|たてて|作って|つくって)" + END);
+	private static final String AREA = NUM + "(?:マス|個|ブロック|つ)?(?:くらい|ぐらい|ほど|分)?";
+	/** 「畑を作って」「ここに畑を12マス作って」「畑を20マス広げて」。 */
+	private static final Pattern TILL = Pattern.compile("^" + WHERE + "(?:新しい|新しく)?(?:畑|はたけ)を" + AREA + "(作って|つくって|耕して|たがやして|広げて|ひろげて)" + END);
+	/** 「ここを耕して」「この辺を6マス耕して」「耕して」。 */
+	private static final Pattern TILL2 = Pattern.compile("^" + WHERE + "(?:(?:地面|土)を)?" + AREA + "(耕して|たがやして)" + END);
 	private static final Pattern PLACE = Pattern.compile("^(ここに|そこに)(.+?)を(置いて|おいて|設置して|つけて|付けて)" + END);
 	private static final String CHEST = "(?:近くの|この|その)?(?:チェスト|箱|樽)(?:の中)?から";
 	private static final String TAKE_VERB = "(?:取り出して|とりだして|取ってきて|とってきて|持ってきて|もってきて|取って|とって|出して|だして)";
@@ -115,6 +122,14 @@ public final class QuickCommands {
 		if (FARM.matcher(s).matches()) {
 			return plan("畑の世話をしてくるね！", new Command.Farm());
 		}
+		for (Pattern p : List.of(TILL, TILL2)) {
+			Matcher till = p.matcher(s);
+			if (till.matches()) {
+				int n = Math.min(Command.Till.MAX_COUNT, Quantity.parse(till.group(2)).map(QuickCommands::clamp).orElse(Command.Till.DEFAULT_COUNT));
+				// 耕したら、持っている種をそのまままく
+				return Optional.of(Match.plan(new Plan("耕して、種をまくね！", List.of(new Command.Till(placeOf(till.group(1)), n), new Command.Farm()), null)));
+			}
+		}
 		if (FIGHT.matcher(s).matches()) {
 			return plan("まかせて、やっつけてくる！", new Command.Fight());
 		}
@@ -165,7 +180,7 @@ public final class QuickCommands {
 		if (m.matches()) {
 			var bp = Blueprints.find(m.group(2));
 			if (bp.isPresent()) {
-				Place place = "拠点に".equals(m.group(1)) ? new Place.Home() : new Place.Looking();
+				Place place = placeOf(m.group(1));
 				return plan(bp.get().japaneseName() + "を建てるね！", new Command.Build(bp.get().id(), place));
 			}
 		}
@@ -218,6 +233,11 @@ public final class QuickCommands {
 
 	private static Optional<Match> plan(String say, Command c) {
 		return Optional.of(Match.plan(new Plan(say, List.of(c), null)));
+	}
+
+	/** WHERE で読んだ言葉を場所にする。 */
+	private static Place placeOf(String where) {
+		return where != null && where.startsWith("拠点") ? new Place.Home() : new Place.Looking();
 	}
 
 	private static Command hunt(Hunting.Prey prey, String quantity) {

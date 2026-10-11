@@ -120,6 +120,17 @@ public sealed interface Command {
 		}
 	}
 
+	/** 地面を耕して、畑にする。count は耕すマスの数。種をまくのは {@link Farm}。 */
+	record Till(Place place, int count) implements Command {
+		/** 数を言われなかったときに耕すマスの数（3×3）。 */
+		public static final int DEFAULT_COUNT = 9;
+		public static final int MAX_COUNT = 64;
+
+		public String describe() {
+			return "till at " + place.describe() + " " + count;
+		}
+	}
+
 	/** 近くに落ちているアイテムを拾う。 */
 	record Pickup() implements Command {
 		public String describe() {

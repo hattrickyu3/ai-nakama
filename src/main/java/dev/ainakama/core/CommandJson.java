@@ -25,6 +25,11 @@ public final class CommandJson {
 			case Command.Fight f -> o.addProperty("do", "fight");
 			case Command.Guard g -> o.addProperty("do", "guard");
 			case Command.Pickup p -> o.addProperty("do", "pickup");
+			case Command.Till t -> {
+				o.addProperty("do", "till");
+				o.addProperty("at", t.place().describe());
+				o.addProperty("count", t.count());
+			}
 			case Command.Hunt h -> {
 				o.addProperty("do", "hunt");
 				o.addProperty("item", h.item() == null ? h.animal() : h.item());

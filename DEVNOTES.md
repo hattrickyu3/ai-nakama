@@ -21,7 +21,8 @@
 - ゲーム内テストのプレイヤーには耐性の効果を付けている。付けないと、ミナがハスクを倒す前にプレイヤーが倒されて、ゲームごと終わることがあった
 - まだ直していない：途中の命令が失敗すると、残りの予定も全部やめる（TaskRunner.fail）。「木と石を集めて」で木が見つからないと、石も集めない
 - 言葉を受け取る順：教える言い方（TeachParser）→ 決まった言い方（QuickCommands）→ 覚えた技（SkillBook）→ いくつか続けた指示 → AI
-- 命令: follow / stop / move_to / collect / craft / smelt / build / place / give / store / take / farm / fight / guard / hunt / pickup / skill / say / remember
+- 命令: follow / stop / move_to / collect / craft / smelt / build / place / give / store / take / farm / fight / guard / hunt / pickup / till / skill / say / remember
+- 原木や砂が近く（56マス）にないとき、CollectTask は Explorer でまわりを歩いて探す（出発点から東西南北48マス → 斜め → 104マスの12地点。着くたびに広く探し直す）。前は「近くに見つからない」で失敗して、計画全体をやめていた
 - 狩り（HuntTask）の決まりは core の Hunting にある。AIが肉や革に collect を使ったら、PlanParser が hunt に読み替える。たたく動き（Melee）と拾う動き（Looter）は、戦う・狩る・拾うで共通
 - 実行中に材料・道具が足りなければ、タスクが「先にやること」を返して実行側が前に差し込む（深さ6まで、同じ命令のやり直しは4回まで）
 - 足りない材料の手に入れ方は Supplies が決める：近くのチェストから出す → 集める → かまどで焼く、の順
@@ -67,7 +68,7 @@
 
 ## 次にやること（候補）
 - 普段のランチャーで遊べるように、Fabric を入れて jar を mods に置く手順を整える
-- 動きを増やす（Mindcraft の skills.js を一覧表にして、足りないものを足していく）。済み：拾う・狩る・倒した相手の落とし物を拾う。次：食べる・装備する → 寝る → 畑を新しく耕す → 道具を使う（ハサミ・バケツ）
+- 動きを増やす（Mindcraft の skills.js を一覧表にして、足りないものを足していく）。済み：拾う・狩る・倒した相手の落とし物を拾う・畑を新しく耕す・遠くまで探しに行く。次：道具を使う（ハサミ・バケツ）→ 動物を増やす → 暗いところに松明を置く → 取引 → 釣り。食べる・防具・寝るは入れない（仲間は無敵で空腹もないので、やっても変わらない）
 - AltoClef をまねて「〇〇を手に入れて」を作る（掘る・作る・焼く・狩る・チェストから出す、を自動で選ぶ）
 - 建物の材料（BuildTask.checkMaterials）も Supplies を通す（今はチェストを見ない・焼かない）
 - 覚えた設計図の向きを変えて建てる（今は見せたときと同じ向き）

@@ -159,6 +159,15 @@ public final class PlanParser {
 				return Optional.of(new Command.Guard());
 			case "pickup":
 				return Optional.of(new Command.Pickup());
+			case "till": {
+				Optional<Place> place = Place.parse(stringOr(o, "at", "here"));
+				if (place.isEmpty()) {
+					errors.add(where + ": at が読めない");
+					return Optional.empty();
+				}
+				int count = Math.min(Command.Till.MAX_COUNT, clampCount(o, where, errors, Command.Till.DEFAULT_COUNT));
+				return Optional.of(new Command.Till(place.get(), count));
+			}
 			case "hunt": {
 				String raw = stringOr(o, "item", stringOr(o, "name", ""));
 				Optional<Hunting.Prey> prey = Hunting.resolve(raw, itemExists);

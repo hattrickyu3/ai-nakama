@@ -47,6 +47,9 @@ public final class Tasks {
 			case Command.Guard g -> new FightTask(true);
 			case Command.Hunt h -> new HuntTask(h.animal(), h.item(), h.count());
 			case Command.Pickup p -> new PickupTask();
+			case Command.Till t -> Places.resolve(t.place(), nakama, level)
+				.<Task>map(pos -> new TillTask(pos, t.count()))
+				.orElseGet(() -> failing("耕す場所が決まらない（拠点が未登録かも）"));
 		};
 	}
 

@@ -211,7 +211,8 @@ class SmallPartsTest {
 		String user = PromptBuilder.userForMessage("ミナ", s, m, extras, "拠点を明るくして");
 
 		// 日本語はおよそ1文字1トークン。技を50個・知識を100件覚えても、送る量は増え続けない
-		assertTrue(system.length() < 1800, "system length " + system.length());
+		// 命令を足すと説明も増える（狩る・拾う・耕すを足して約1850文字）。足すときは、ここの上限を見て増やしすぎないようにする
+		assertTrue(system.length() < 2000, "system length " + system.length());
 		assertTrue(user.length() < 900, "user length " + user.length());
 		assertTrue(user.contains("拠点を明るくする"));
 		assertTrue(user.contains("見張り台"));
