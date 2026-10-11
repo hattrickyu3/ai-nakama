@@ -1,5 +1,6 @@
 package dev.ainakama.task;
 
+import dev.ainakama.core.Tooling;
 import dev.ainakama.entity.NakamaEntity;
 import dev.ainakama.world.Inv;
 import java.util.List;
@@ -35,7 +36,7 @@ final class Breaker {
 			cancel(nakama, level);
 			pos = target.immutable();
 			progress = 0;
-			total = breakTicks(state, !tool.isEmpty());
+			total = breakTicks(state, tool);
 			nakama.setItemSlot(EquipmentSlot.MAINHAND, tool.copyWithCount(1));
 		}
 		nakama.getLookControl().setLookAt(Vec3.atCenterOf(target));
@@ -84,10 +85,10 @@ final class Breaker {
 		return allFit;
 	}
 
-	/** 硬さから掘る時間を決める。正しい道具があれば速い。 */
-	private static int breakTicks(BlockState state, boolean hasTool) {
-		float hardness = state.getBlock().defaultDestroyTime();
-		int ticks = (int) (hardness * (hasTool ? 8 : 15));
-		return Math.max(4, Math.min(60, ticks));
+	/** 硬さと、持っている道具の速さから、掘る時間を決める（木の斧より石の斧、石より鉄のほうが速い）。 */
+	private static int breakTicks(BlockState state, ItemStack tool) {
+		float speed = tool.isEmpty() ? 1.0F : tool.getDestroySpeed(state);
+		boolean canHarvest = !state.requiresCorrectToolForDrops() || (!tool.isEmpty() && tool.isCorrectToolForDrops(state));
+		return Tooling.breakTicks(state.getBlock().defaultDestroyTime(), speed, canHarvest);
 	}
 }

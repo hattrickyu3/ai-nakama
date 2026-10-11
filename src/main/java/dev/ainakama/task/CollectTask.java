@@ -2,6 +2,7 @@ package dev.ainakama.task;
 
 import dev.ainakama.core.Command;
 import dev.ainakama.core.Items;
+import dev.ainakama.core.Tooling;
 import dev.ainakama.entity.NakamaEntity;
 import dev.ainakama.world.Inv;
 import dev.ainakama.world.Sources;
@@ -12,10 +13,12 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -25,7 +28,8 @@ import net.minecraft.world.phys.Vec3;
  * ・道具が要るのに持っていなければ「先に道具を作って」と返す
  * ・地表に見当たらない石や鉱石は、階段状に掘り下げて取りに行く
  * ・近くに見当たらない原木や砂は、まわりを歩いて探しに行く
- * ・高くて届かない原木は、足場を積んで取る
+ * ・高くて届かない原木は、真下で足場を積んで登って取る（足場の土は、なければ近くの地面から借りて、あとで埋め戻す）
+ * ・たくさん集めるときは、斧・シャベル・石のツルハシを先に作る
  */
 final class CollectTask implements Task {
 	private static final int SEARCH_RADIUS = 24;
@@ -40,6 +44,10 @@ final class CollectTask implements Task {
 	private static final int EXPLORE_SEARCH_INTERVAL = 60;
 	/** 真下〜斜め下に立っていて、高さだけが足りないとみなす水平の距離。 */
 	private static final double UNDER_DISTANCE = 2.5;
+	/** 目より、これより高いところにあるものは、歩いて近づくのではなく、足場を積んで登る。 */
+	private static final double CLIMB_HEIGHT = 3.0;
+	/** 1本の木のために、地面から借りる土の数の上限。 */
+	private static final int MAX_BORROW = 16;
 	/** 1本の木として最後まで切る原木の数の上限（巨大な木やつながった森を切り続けないように）。 */
 	private static final int MAX_TREE_LOGS = 48;
 
@@ -55,6 +63,13 @@ final class CollectTask implements Task {
 	private final Deque<BlockPos> tree = new ArrayDeque<>();
 
 	private final Explorer explorer = new Explorer();
+	/** 登るときに、頭の上の葉っぱをどける（目標を掘る breaker とは別に進める）。 */
+	private final Breaker clearer = new Breaker();
+	/** 足場にする土を、近くの地面から借りている途中か。 */
+	private boolean borrowing;
+	private int borrowNeed;
+	/** 借りられる地面が近くになかった（同じ木で何度も探し直さない）。 */
+	private boolean borrowRefused;
 	private Digger digger;
 	private boolean exploring;
 	private boolean wideSearchDue;
@@ -97,6 +112,16 @@ final class CollectTask implements Task {
 				if (gathered >= count) {
 					return finish(nakama, level, DONE);
 				}
+				// 次の木（や次のひと掘り）へ行く前に、前の足場を片付ける
+				if (!scaffold.isEmpty()) {
+					scaffold.removeAll(nakama, level);
+				}
+				// 斧・シャベル・石のツルハシを作っておくと速くなるなら、先に作る（切りかけの木がないときにだけ）
+				Optional<String> betterTool = Tooling.upgradeFor(item, Inv.counts(nakama.getInventory()), count - gathered);
+				if (betterTool.isPresent()) {
+					return finish(nakama, level, new Result.Needs(List.of(new Command.Craft(betterTool.get(), 1)),
+						Items.label(betterTool.get()) + "を作ってから続ける"));
+				}
 				target = findNearest(nakama, level, SEARCH_RADIUS);
 				if (target == null && digger == null && (!exploring || wideSearchDue)) {
 					// 近くになければ、もっと遠くまで見渡して歩いていく
@@ -124,8 +149,9 @@ final class CollectTask implements Task {
 		double dist = nakama.getEyePosition().distanceTo(center);
 		if (dist > REACH) {
 			breaker.cancel(nakama, level);
-			if (isRightUnder(nakama, center) && scaffold.raise(nakama, level, Set.of())) {
-				return RUNNING;
+			if (borrowing || center.y - nakama.getEyeY() > CLIMB_HEIGHT) {
+				// 立ったままでは届かない高さ：真下まで行って、足場を積んで登る
+				return climb(nakama, level, center);
 			}
 			if (!walker.step(nakama, target, 1, 20, dist)) {
 				skipped.add(target);
@@ -223,6 +249,7 @@ final class CollectTask implements Task {
 	 */
 	private void startTree(NakamaEntity nakama, ServerLevel level, BlockPos first) {
 		tree.clear();
+		borrowRefused = false;
 		Set<BlockPos> seen = new HashSet<>(Set.of(first));
 		Deque<BlockPos> open = new ArrayDeque<>(List.of(first));
 		List<BlockPos> rest = new ArrayList<>();
@@ -262,10 +289,72 @@ final class CollectTask implements Task {
 		return gathered > 0 && gathered < count ? new Command.Collect(item, count - gathered) : original;
 	}
 
-	private boolean isRightUnder(NakamaEntity nakama, Vec3 center) {
+	/**
+	 * 高いところにある目標の真下へ行き、足元にブロックを積んで登る。
+	 * 足場にする土や丸石を持っていなければ、近くの地面の土を借りる（終わったら埋め戻す）。
+	 * 頭の上の葉っぱは、自然のものならどける。
+	 */
+	private Result climb(NakamaEntity nakama, ServerLevel level, Vec3 center) {
+		if (borrowing) {
+			switch (scaffold.ensure(nakama, level, borrowNeed, Set.of())) {
+				case WORKING -> {
+					return RUNNING;
+				}
+				case NONE -> {
+					borrowing = false;
+					if (Scaffold.fillerCount(nakama, Set.of()) == 0) {
+						return giveUpTarget();
+					}
+				}
+				default -> borrowing = false;
+			}
+		}
 		double dx = center.x - nakama.getX();
 		double dz = center.z - nakama.getZ();
-		return Math.sqrt(dx * dx + dz * dz) <= UNDER_DISTANCE && center.y > nakama.getEyeY();
+		double horizontal = Math.sqrt(dx * dx + dz * dz);
+		if (horizontal > UNDER_DISTANCE) {
+			BlockPos below = new BlockPos(target.getX(),
+				Terrain.surfaceY(level, target.getX(), target.getZ(), nakama.blockPosition().getY()), target.getZ());
+			return walker.step(nakama, below, 1, 20, horizontal) ? RUNNING : giveUpTarget();
+		}
+		if (center.y - nakama.getEyeY() <= CLIMB_HEIGHT) {
+			// 真下にいて高さも足りているのに届かない（間に何かある）
+			return giveUpTarget();
+		}
+		// この木のいちばん上まで登れるだけの数を、先にそろえる（途中で下りて取りに行かなくてすむように）
+		int top = Math.max(target.getY(), tree.stream().mapToInt(BlockPos::getY).max().orElse(target.getY()));
+		int need = (int) Math.ceil(top + 0.5 - (nakama.getEyeY() + REACH - 1.0));
+		need = Math.max(1, Math.min(MAX_BORROW, need));
+		if (Scaffold.fillerCount(nakama, Set.of()) < need && !borrowRefused) {
+			Scaffold.Supply supply = scaffold.ensure(nakama, level, need, Set.of());
+			if (supply == Scaffold.Supply.WORKING) {
+				borrowing = true;
+				borrowNeed = need;
+				return RUNNING;
+			}
+			// 借りられる地面がない：持っている分だけで登る
+			borrowRefused = supply == Scaffold.Supply.NONE;
+		}
+		if (scaffold.raise(nakama, level, Set.of())) {
+			return RUNNING;
+		}
+		BlockPos overhead = nakama.blockPosition().above(2);
+		BlockState blocking = level.getBlockState(overhead);
+		if (blocking.is(BlockTags.LEAVES) && Terrain.isNaturalClearable(level, overhead, blocking)) {
+			List<ItemStack> drops = clearer.tick(nakama, level, overhead);
+			if (drops != null) {
+				Breaker.stash(nakama, level, drops);
+			}
+			return RUNNING;
+		}
+		return giveUpTarget();
+	}
+
+	/** いまの目標には届かないので、あきらめて次を探す。 */
+	private Result giveUpTarget() {
+		skipped.add(target);
+		target = null;
+		return RUNNING;
 	}
 
 	private BlockPos findNearest(NakamaEntity nakama, ServerLevel level, int radius) {
@@ -325,6 +414,7 @@ final class CollectTask implements Task {
 	@Override
 	public void cancel(NakamaEntity nakama, ServerLevel level) {
 		breaker.cancel(nakama, level);
+		clearer.cancel(nakama, level);
 		if (digger != null) {
 			digger.cancel(nakama, level);
 		}

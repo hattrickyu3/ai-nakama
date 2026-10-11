@@ -81,15 +81,22 @@ public final class Inv {
 		return -1;
 	}
 
-	/** そのブロックを正しく掘れる道具。なければ空のスタック。 */
+	/** そのブロックに合う道具のうち、いちばん速く掘れるもの（木より石、石より鉄）。なければ空のスタック。 */
 	public static ItemStack bestToolFor(Container inv, BlockState state) {
+		ItemStack best = ItemStack.EMPTY;
+		float bestSpeed = 0;
 		for (int i = 0; i < inv.getContainerSize(); i++) {
 			ItemStack s = inv.getItem(i);
-			if (!s.isEmpty() && s.isCorrectToolForDrops(state)) {
-				return s;
+			if (s.isEmpty() || !s.isCorrectToolForDrops(state)) {
+				continue;
+			}
+			float speed = s.getDestroySpeed(state);
+			if (speed > bestSpeed) {
+				best = s;
+				bestSpeed = speed;
 			}
 		}
-		return ItemStack.EMPTY;
+		return best;
 	}
 
 	public static boolean hasPickaxe(Container inv) {

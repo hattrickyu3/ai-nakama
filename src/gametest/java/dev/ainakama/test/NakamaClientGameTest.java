@@ -66,6 +66,22 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 				n -> n.isIdle() && Inv.count(n.getInventory(), "#log") >= logsBeforeExplore + 3, LONG);
 			server.runOnServer(s -> nakama(s).snapTo(base.getX() + 0.5, base.getY(), base.getZ() + 3.5, 180, 0));
 			context.waitTicks(10);
+			// 高い木（幹が10本）：斧を作り、足場の土を地面から借りて登り、上まで切る。終わったら足場を片付けて土を埋め戻す
+			BlockPos tallTree = base.offset(8, 0, 20);
+			server.runOnServer(s -> {
+				plantTallTree(s, tallTree, 10);
+				nakama(s).snapTo(tallTree.getX() - 2 + 0.5, tallTree.getY(), tallTree.getZ() + 0.5, 0, 0);
+			});
+			context.waitTicks(10);
+			step("高い木を、足場を積んで上まで切りきる", List.of(new Command.Collect("oak_log", 10)),
+				n -> n.isIdle() && countColumn(n, tallTree, 0, 14, "_log") == 0, LONG);
+			check("斧を自分で作った", server.computeOnServer(s -> Inv.count(nakama(s).getInventory(), "wooden_axe")) >= 1);
+			check("足場を片付けた（地面より上に土が残っていない）",
+				server.computeOnServer(s -> countAround(nakama(s), tallTree, 6, 0, 14, "dirt")) == 0);
+			check("借りた土を埋め戻した（地面に穴が残っていない）",
+				server.computeOnServer(s -> countAround(nakama(s), tallTree, 8, -1, -1, "air")) == 0);
+			server.runOnServer(s -> nakama(s).snapTo(base.getX() + 0.5, base.getY(), base.getZ() + 3.5, 180, 0));
+			context.waitTicks(10);
 			step("木のツルハシを作る（本体のレシピで、板材・棒・作業台を自動で作る）", List.of(new Command.Craft("wooden_pickaxe", 1)),
 				n -> Inv.count(n.getInventory(), "wooden_pickaxe") >= 1, LONG);
 			step("はしごを作る（手書きの表にはなかったレシピ）", List.of(new Command.Craft("ladder", 3)),
@@ -376,6 +392,37 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 		int count = 0;
 		for (BlockPos p : BlockPos.betweenClosed(center.offset(-4, -1, -4), center.offset(4, 1, 4))) {
 			if (Terrain.isRipeCrop(n.level().getBlockState(p))) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	/** 高さ height の幹と、上のほうに葉っぱのある木（トウヒのような、手の届かない高さの木）。 */
+	private static void plantTallTree(MinecraftServer server, BlockPos root, int height) {
+		ServerLevel level = server.overworld();
+		for (int h = 0; h < height; h++) {
+			level.setBlockAndUpdate(root.above(h), Blocks.OAK_LOG.defaultBlockState());
+		}
+		for (int h = height / 2; h <= height; h++) {
+			for (BlockPos p : BlockPos.betweenClosed(root.offset(-1, h, -1), root.offset(1, h, 1))) {
+				if (level.getBlockState(p).isAir()) {
+					level.setBlockAndUpdate(p, naturalLeaves());
+				}
+			}
+		}
+	}
+
+	/** center の真上の列で、高さ fromY〜toY（center からの差）にある、IDが suffix で終わるブロックの数。 */
+	private static int countColumn(NakamaEntity n, BlockPos center, int fromY, int toY, String suffix) {
+		return countAround(n, center, 0, fromY, toY, suffix);
+	}
+
+	/** center のまわり radius マス、高さ fromY〜toY（center からの差）にある、IDが suffix で終わるブロックの数。 */
+	private static int countAround(NakamaEntity n, BlockPos center, int radius, int fromY, int toY, String suffix) {
+		int count = 0;
+		for (BlockPos p : BlockPos.betweenClosed(center.offset(-radius, fromY, -radius), center.offset(radius, toY, radius))) {
+			if (Terrain.idOf(n.level().getBlockState(p)).endsWith(suffix)) {
 				count++;
 			}
 		}
