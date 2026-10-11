@@ -65,10 +65,11 @@ class PlanParserTest {
 
 	@Test
 	void collectOnlyAllowsNaturalResources() {
-		// 板材を「集める」と、プレイヤーの家の壁を壊してしまうので受け付けない
+		// 板材を「集める」と、プレイヤーの家の壁を壊してしまう。集める命令にはせず、手に入れ方を任せる（クラフトで作る）
 		var planks = parser.parse("{\"say\":\"\",\"plan\":[{\"do\":\"collect\",\"item\":\"oak_planks\",\"count\":10}]}");
-		assertFalse(planks.ok());
-		assertTrue(planks.plan().commands().isEmpty());
+		assertTrue(planks.ok(), () -> planks.errors().toString());
+		assertEquals(new Command.Obtain("oak_planks", 10), planks.plan().commands().get(0));
+		assertEquals(java.util.Optional.of(new Command.Craft("oak_planks", 10)), Obtaining.how("oak_planks", 10));
 
 		// "stone" は掘ると丸石になるので、丸石を集める意味に読みかえる
 		var stone = parser.parse("{\"say\":\"\",\"plan\":[{\"do\":\"collect\",\"item\":\"stone\",\"count\":5}]}");
@@ -77,8 +78,16 @@ class PlanParserTest {
 	}
 
 	@Test
-	void rejectsUncraftableItem() {
-		var r = parser.parse("{\"say\":\"\",\"plan\":[{\"do\":\"craft\",\"item\":\"oak_log\",\"count\":1}]}");
+	void craftOfSomethingThatIsGatheredIsLeftToTheProgram() {
+		// 原木はクラフトできないが、集めれば手に入るので、手に入れ方を任せる
+		var log = parser.parse("{\"say\":\"\",\"plan\":[{\"do\":\"craft\",\"item\":\"oak_log\",\"count\":1}]}");
+		assertTrue(log.ok(), () -> log.errors().toString());
+		assertEquals(new Command.Obtain("oak_log", 1), log.plan().commands().get(0));
+	}
+
+	@Test
+	void rejectsItemWithNoKnownWayToGetIt() {
+		var r = parser.parse("{\"say\":\"\",\"plan\":[{\"do\":\"craft\",\"item\":\"bedrock\",\"count\":1}]}");
 		assertFalse(r.ok());
 		assertTrue(r.plan().commands().isEmpty());
 	}

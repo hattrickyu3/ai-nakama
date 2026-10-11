@@ -12,7 +12,7 @@ import java.util.stream.Collectors;
 public final class PromptBuilder {
 	private static final String STEP_SCHEMA = """
 		{"type":"object","properties":{
-		  "do":{"type":"string","enum":["follow","stop","move_to","collect","craft","smelt","build","place","give","store","take","farm","fight","guard","hunt","pickup","till","skill","say","remember"]},
+		  "do":{"type":"string","enum":["follow","stop","move_to","collect","craft","smelt","build","place","give","store","take","farm","fight","guard","hunt","pickup","till","get","shear","milk","breed","fish","light","buy","sell","skill","say","remember"]},
 		  "item":{"type":"string"},"count":{"type":"integer"},"blueprint":{"type":"string"},
 		  "at":{"type":"string"},"text":{"type":"string"},"name":{"type":"string"}},"required":["do"]}
 		""";
@@ -41,6 +41,17 @@ public final class PromptBuilder {
 	}
 
 	public static String system(String name, String personality) {
+		return system(name, personality, false);
+	}
+
+	/** get の説明。小さいAIは、これを読むと数を1個にしたり、聞き返すべき頼みに勝手に動き出したりするので、渡さない。 */
+	private static final String GET_LINE =
+		"- get(item, count): アイテムを用意する。集める・狩る・焼く・クラフトする・チェストから出す、のどれにするかはプログラムが決める。手に入れ方に迷ったら get\n";
+
+	/**
+	 * @param small PCの中で動く小さいAIか。小さいAIには、説明を減らす（get は、書いてきたら受け付けるが、説明はしない）
+	 */
+	public static String system(String name, String personality, boolean small) {
 		return """
 			あなたはマインクラフトの世界に住む村人「%s」。性格: %s
 			プレイヤーの言葉を聞いて、短い返事(say)と、実行する命令の並び(plan)を決める。
@@ -61,7 +72,10 @@ public final class PromptBuilder {
 			- fight: 近くのモンスターを倒す（動物は hunt）
 			- hunt(item, count): 動物を狩って、落としたものを拾う。item は動物（cow, pig, sheep, chicken, rabbit）か、ほしいもの（beef, porkchop, mutton, chicken, leather, feather, white_wool）
 			- pickup: 近くに落ちているアイテムを拾う
-			- skill(name): 覚えた技を使う
+			- shear(count): ハサミで羊の毛を刈る / milk(count): バケツで牛の乳をしぼる / breed(item, count): 動物にエサをやって増やす（item は動物）
+			- fish(count): 釣りをする / light(at): まわりの暗いところに松明を置いて明るくする
+			- buy(item, count): 村人から買う / sell(item, count): 村人に売る（count は取引の回数）
+%s			- skill(name): 覚えた技を使う
 			- say(text): 話す / remember(text): 覚えておく
 			場所(at): home=拠点, player=プレイヤーの足元, here=プレイヤーが見ているところ, self=自分のいる場所, "x y z"=座標
 			item はマインクラフトのID（oak_log, cobblestone, torch, oak_door, crafting_table など）。1スタック=64個。
@@ -71,12 +85,12 @@ public final class PromptBuilder {
 			- 雑談や質問には say だけで答える（plan は空）。座標などは状況に書いてあることを答える。
 			- 集める・作る・建てる・置く・渡すことを頼まれたら、必ず plan に命令を書く（「〇〇がほしい」は craft、「取ってきて」は collect）。頼まれたことは最後の手順まで全部書く。
 			- 石・石炭・鉄は、近くの資源に書いていなくても collect で掘り下げて探せる（鉄は raw_iron。鉄インゴットは smelt）。
-			- 命令がないのでできないのは、取引・釣りだけ。それを頼まれたときは plan を空にして、できないと正直に言う。
+			- 使える命令にないことを頼まれたときは、plan を空にして、できないと正直に言う。
 			- 何をすればいいのかはっきりしない頼み（「キャンプの準備をして」「冬支度して」など）は、勝手に決めずに、plan を空にして ask に質問を書く。
 			  例: {"say": "キャンプの準備？", "plan": [], "ask": "「キャンプの準備」って、何をすればいいの？"}
 			- 覚えておくべき事実（好み・場所・コツ）があれば memo に書く。
 			出力はJSONだけ。使わない項目は省いてよい: {"say": "...", "plan": [{"do": "collect", "item": "oak_log", "count": 10}]}
-			""".formatted(name, personality);
+			""".formatted(name, personality, small ? "" : GET_LINE);
 	}
 
 	/** プレイヤーに話しかけられたとき。 */

@@ -223,7 +223,7 @@ final class NakamaMind {
 	private void askAi(String purpose, String user, ServerLevel level, Consumer<AiService.Outcome> onOutcome) {
 		AiService ai = ModServices.ai();
 		nakama.setThinking(true);
-		String system = PromptBuilder.system(nakama.baseName(), nakama.personality());
+		String system = PromptBuilder.system(nakama.baseName(), nakama.personality(), ModServices.config().isSmallLocalModel());
 		int askedAt = generation;
 		ai.ask(nakama.getUUID(), purpose, system, user, true).whenComplete((outcome, err) ->
 			level.getServer().execute(() -> {

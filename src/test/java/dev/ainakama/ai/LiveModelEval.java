@@ -25,7 +25,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 class LiveModelEval {
 	private static final Set<String> ITEMS = Set.of("oak_log", "oak_planks", "stick", "crafting_table", "chest", "cobblestone",
 		"coal", "torch", "wooden_pickaxe", "stone_pickaxe", "furnace", "dirt", "sand", "wheat", "bread", "oak_fence", "oak_door", "raw_iron", "iron_ingot", "white_wool",
-		"glass", "charcoal", "stone", "wheat_seeds", "beef", "cooked_beef", "porkchop", "mutton", "chicken", "leather", "feather");
+		"glass", "charcoal", "stone", "wheat_seeds", "beef", "cooked_beef", "porkchop", "mutton", "chicken", "leather", "feather", "emerald", "milk_bucket", "cod", "shears", "bucket", "fishing_rod");
 
 	private static final List<String> REQUESTS = List.of(
 		"石のツルハシがほしいな",
@@ -49,7 +49,12 @@ class LiveModelEval {
 		"お腹がすいたな。何か肉を取ってきてくれない？",
 		"本を作りたいから、革が3枚ほしいんだ",
 		"さっき倒したゾンビが何か落としたみたい。拾っておいて",
-		"拠点のそばに、小麦を育てる畑を新しく作ってほしいな");
+		"拠点のそばに、小麦を育てる畑を新しく作ってほしいな",
+		"夜が怖いから、拠点のまわりを明るくしておいて",
+		"村人に小麦を売って、エメラルドにしてきて",
+		"魚が食べたいな。釣ってきてくれる？",
+		"牛をもっと増やしておいてほしい",
+		"ケーキを作りたいから、牛乳を用意しておいて");
 
 	/** 作業中（木を集めている途中）に話しかけられたときの頼み。2026-10-10 に実際に遊んだときの言い方を含む。 */
 	private static final List<String> REQUESTS_WHILE_WORKING = List.of(
@@ -70,7 +75,7 @@ class LiveModelEval {
 		Status status = new Status("昼", "晴れ", 20, 20, "座標 10 64 -5、拠点（5 64 -5）から東に5マス", Map.of("oak_log", 14),
 			List.of(Items.label("oak_log") + " 北に12マス 約30個", "stone 下に3マス"), List.of(), List.of("home"),
 			"oak_log(オークの原木)を集める（14/30）（このあと1個）");
-		String system = PromptBuilder.system("ミナ", cfg.defaultPersonality);
+		String system = PromptBuilder.system("ミナ", cfg.defaultPersonality, cfg.isSmallLocalModel());
 		for (String req : REQUESTS_WHILE_WORKING) {
 			String user = PromptBuilder.userForMessage("ミナ", status, Memory.empty(), PromptBuilder.Extras.none(), req, !cfg.isSmallLocalModel());
 			var out = service.ask(UUID.randomUUID(), "eval", system, user).join();
@@ -100,7 +105,7 @@ class LiveModelEval {
 		Status status = new Status("昼", "晴れ", 20, 20, "座標 10 64 -5、拠点（5 64 -5）から東に5マス", inv,
 			List.of(Items.label("oak_log") + " 北に12マス 約30個", "stone 下に3マス"),
 			List.of("羊×3 西に20マス"), List.of("home"), "なし");
-		String system = PromptBuilder.system("ミナ", cfg.defaultPersonality);
+		String system = PromptBuilder.system("ミナ", cfg.defaultPersonality, cfg.isSmallLocalModel());
 
 		int firstTryOk = 0;
 		for (String req : REQUESTS) {

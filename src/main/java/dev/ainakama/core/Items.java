@@ -65,6 +65,14 @@ public final class Items {
 		alias("leather", "革", "皮", "レザー");
 		alias("white_wool", "羊毛", "ウール", "wool");
 		alias("feather", "羽", "羽根");
+		alias("milk_bucket", "牛乳", "ミルク", "ミルク入りバケツ", "milk");
+		alias("bucket", "バケツ");
+		alias("shears", "ハサミ", "はさみ");
+		alias("fishing_rod", "釣り竿", "釣竿", "つりざお");
+		alias("cod", "生鱈", "タラ", "魚", "さかな", "fish");
+		alias("salmon", "生鮭", "鮭", "サケ");
+		alias("emerald", "エメラルド");
+		alias("wooden_hoe", "木のクワ", "クワ", "くわ");
 		alias("bread", "パン");
 		alias("oak_fence", "柵", "フェンス", "fence");
 		alias("oak_door", "ドア", "扉", "door");
@@ -107,6 +115,14 @@ public final class Items {
 		japanese("leather", "革");
 		japanese("white_wool", "白色の羊毛");
 		japanese("feather", "羽");
+		japanese("milk_bucket", "牛乳入りバケツ");
+		japanese("bucket", "バケツ");
+		japanese("shears", "ハサミ");
+		japanese("fishing_rod", "釣り竿");
+		japanese("cod", "生鱈");
+		japanese("salmon", "生鮭");
+		japanese("emerald", "エメラルド");
+		japanese("wooden_hoe", "木のクワ");
 	}
 
 	private Items() {

@@ -45,7 +45,18 @@ public final class Tasks {
 			case Command.Farm f -> new FarmTask();
 			case Command.Fight f -> new FightTask(false);
 			case Command.Guard g -> new FightTask(true);
+			// 羊毛は、ハサミを持っていれば刈って取る（羊を倒さずにすむ）
+			case Command.Hunt h when h.item() != null && h.item().endsWith("_wool") && ShearTask.hasShears(nakama) -> new ShearTask(h.count());
 			case Command.Hunt h -> new HuntTask(h.animal(), h.item(), h.count());
+			case Command.Obtain g -> new ObtainTask(g.item(), g.count());
+			case Command.Shear s -> new ShearTask(s.count());
+			case Command.Milk m -> new MilkTask(m.count());
+			case Command.Breed b -> new BreedTask(b.animal(), b.count());
+			case Command.Fish f -> new FishTask(f.count());
+			case Command.Light l -> Places.resolve(l.place(), nakama, level)
+				.<Task>map(LightTask::new)
+				.orElseGet(() -> failing("明るくする場所が決まらない（拠点が未登録かも）"));
+			case Command.Trade t -> new TradeTask(t.item(), t.sell(), t.count());
 			case Command.Pickup p -> new PickupTask();
 			case Command.Till t -> Places.resolve(t.place(), nakama, level)
 				.<Task>map(pos -> new TillTask(pos, t.count()))

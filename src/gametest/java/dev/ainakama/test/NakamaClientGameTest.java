@@ -144,6 +144,51 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 				new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.FEATHER, 3))));
 			say("落ちているものを拾う", "落ちてるものを拾って", n -> n.isIdle() && Inv.count(n.getInventory(), "feather") >= 3, LONG);
 
+			// 動物の世話：エサをやる・乳をしぼる・毛を刈る（道具はテストで渡す）
+			say("牛2頭にエサをやる（持っている小麦を使う）", "牛を増やして",
+				n -> n.isIdle() && Inv.count(n.getInventory(), "wheat") == 2, LONG);
+			give(net.minecraft.world.item.Items.BUCKET, 1);
+			say("バケツで牛の乳をしぼる", "乳しぼりして", n -> n.isIdle() && Inv.count(n.getInventory(), "milk_bucket") >= 1, LONG);
+			for (int i = 0; i < 2; i++) {
+				server.runCommand("summon minecraft:sheep " + (base.getX() + 5 + i) + " " + base.getY() + " " + (base.getZ() + 7));
+			}
+			give(net.minecraft.world.item.Items.SHEARS, 1);
+			context.waitTicks(10);
+			say("ハサミで羊の毛を刈る（羊は倒さない）", "羊の毛を刈って",
+				n -> n.isIdle() && Inv.count(n.getInventory(), "white_wool") >= 2 && animals(n, "sheep") == 2, LONG);
+
+			// 「用意して」：手に入れ方を自分で選ぶ（棒は原木から作る。革はもう持っているので何もしない）
+			say("棒を8本用意する（原木 → 板材 → 棒）", "棒を8本用意して", n -> n.isIdle() && Inv.count(n.getInventory(), "stick") >= 8, LONG);
+			step("革はもう持っているので、何もしないで終わる", List.of(new Command.Obtain("leather", 1)), NakamaEntity::isIdle, LONG);
+
+			// 釣り：小さな池を作って、釣り竿を渡す
+			BlockPos pond = base.offset(4, -1, 13);
+			server.runOnServer(s -> {
+				for (BlockPos p : BlockPos.betweenClosed(pond, pond.offset(1, 0, 1))) {
+					s.overworld().setBlockAndUpdate(p, Blocks.WATER.defaultBlockState());
+				}
+			});
+			give(net.minecraft.world.item.Items.FISHING_ROD, 1);
+			step("池で魚を1匹釣る", List.of(new Command.Fish(1)),
+				n -> n.isIdle() && fishCount(n) >= 1, LONG);
+
+			// 村人との取引：小麦2個とエメラルド1個を交換してくれる村人
+			server.runCommand("summon minecraft:villager " + (base.getX() + 3) + " " + base.getY() + " " + (base.getZ() + 10)
+				+ " {NoAI:1b,VillagerData:{profession:\"minecraft:farmer\",level:2,type:\"minecraft:plains\"},"
+				+ "Offers:{Recipes:[{buy:{id:\"minecraft:wheat\",count:2},sell:{id:\"minecraft:emerald\",count:1},maxUses:99}]}}");
+			context.waitTicks(10);
+			say("村人に小麦を売って、エメラルドをもらう", "小麦を売って",
+				n -> n.isIdle() && Inv.count(n.getInventory(), "emerald") >= 1 && Inv.count(n.getInventory(), "wheat") == 0, LONG);
+
+			// 暗いところに松明を置く（松明はテストで渡す）
+			BlockPos darkPlace = base.offset(34, 0, -30);
+			give(net.minecraft.world.item.Items.TORCH, 24);
+			step("まわりの暗い地面に、間をあけて松明を置く",
+				List.of(new Command.Light(new Place.Coords(darkPlace.getX(), darkPlace.getY(), darkPlace.getZ()))),
+				n -> n.isIdle() && count(n, darkPlace, 13, "torch") >= 6, LONG);
+			server.runOnServer(s -> nakama(s).snapTo(base.getX() + 0.5, base.getY(), base.getZ() + 3.5, 180, 0));
+			context.waitTicks(10);
+
 			// ミナが倒す前にプレイヤーが倒されると、テストごとゲームが終わってしまうので、ダメージを受けないようにする
 			server.runCommand("effect give @p minecraft:resistance infinite 4 true");
 			server.runCommand("difficulty easy");
@@ -158,7 +203,7 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 			chat("ミナ、守って");
 			server.waitFor(s -> nakama(s).currentJob().contains("守る"), 100);
 			LOG.info("[ainakama-test] OK: 「守って」が通じた");
-			check("取り出す・焼く・畑・狩る・拾う・戦う・守るで、AIを1回も呼んでいない", aiCalls() == callsBeforeNew);
+			check("取り出す・焼く・畑・狩る・拾う・世話・用意・釣り・取引・明かり・戦う・守るで、AIを1回も呼んでいない", aiCalls() == callsBeforeNew);
 
 			// 建物を見せて覚える
 			BlockPos demo = base.offset(3, 0, 3);
@@ -341,6 +386,16 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 	private static int animals(NakamaEntity n, String id) {
 		return n.level().getEntitiesOfClass(net.minecraft.world.entity.animal.Animal.class, n.getBoundingBox().inflate(64),
 			a -> a.isAlive() && net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(a.getType()).getPath().equals(id)).size();
+	}
+
+	/** 仲間の持ち物に、テスト用の道具や材料を入れる。 */
+	private void give(net.minecraft.world.item.Item item, int count) {
+		server.runOnServer(s -> nakama(s).getInventory().addItem(new net.minecraft.world.item.ItemStack(item, count)));
+	}
+
+	private static int fishCount(NakamaEntity n) {
+		return Inv.count(n.getInventory(), "cod") + Inv.count(n.getInventory(), "salmon")
+			+ Inv.count(n.getInventory(), "pufferfish") + Inv.count(n.getInventory(), "tropical_fish");
 	}
 
 	private static UUID spawnHusk(MinecraftServer server, BlockPos pos) {

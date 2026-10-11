@@ -25,6 +25,39 @@ public final class CommandJson {
 			case Command.Fight f -> o.addProperty("do", "fight");
 			case Command.Guard g -> o.addProperty("do", "guard");
 			case Command.Pickup p -> o.addProperty("do", "pickup");
+			case Command.Light l -> {
+				o.addProperty("do", "light");
+				o.addProperty("at", l.place().describe());
+			}
+			case Command.Trade t -> {
+				o.addProperty("do", t.item() == null ? "trades" : t.sell() ? "sell" : "buy");
+				if (t.item() != null) {
+					o.addProperty("item", t.item());
+					o.addProperty("count", t.count());
+				}
+			}
+			case Command.Obtain g -> {
+				o.addProperty("do", "get");
+				o.addProperty("item", g.item());
+				o.addProperty("count", g.count());
+			}
+			case Command.Shear s -> {
+				o.addProperty("do", "shear");
+				o.addProperty("count", s.count());
+			}
+			case Command.Milk m -> {
+				o.addProperty("do", "milk");
+				o.addProperty("count", m.count());
+			}
+			case Command.Fish f -> {
+				o.addProperty("do", "fish");
+				o.addProperty("count", f.count());
+			}
+			case Command.Breed b -> {
+				o.addProperty("do", "breed");
+				o.addProperty("item", b.animal());
+				o.addProperty("count", b.count());
+			}
 			case Command.Till t -> {
 				o.addProperty("do", "till");
 				o.addProperty("at", t.place().describe());

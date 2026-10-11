@@ -131,6 +131,67 @@ public sealed interface Command {
 		}
 	}
 
+	/**
+	 * アイテムを count 個持っている状態にする。手に入れ方（チェストから出す・集める・狩る・焼く・クラフトする）は
+	 * {@link Obtaining} と実行側が選ぶ。
+	 */
+	record Obtain(String item, int count) implements Command {
+		public String describe() {
+			return "get " + item + " " + count;
+		}
+	}
+
+	/** ハサミで羊の毛を刈る。count は集める羊毛の数。 */
+	record Shear(int count) implements Command {
+		public static final int DEFAULT_COUNT = 3;
+
+		public String describe() {
+			return "shear " + count;
+		}
+	}
+
+	/** バケツで牛の乳をしぼる。count はバケツの杯数。 */
+	record Milk(int count) implements Command {
+		public String describe() {
+			return "milk " + count;
+		}
+	}
+
+	/** 動物にエサをやって増やす。count は増やす数（エサをやる組の数）。 */
+	record Breed(String animal, int count) implements Command {
+		public String describe() {
+			return "breed " + animal + " " + count;
+		}
+	}
+
+	/** 釣りをする。count は釣る魚の数。 */
+	record Fish(int count) implements Command {
+		public static final int DEFAULT_COUNT = 3;
+
+		public String describe() {
+			return "fish " + count;
+		}
+	}
+
+	/** まわりの暗いところに松明を置いて、明るくする。 */
+	record Light(Place place) implements Command {
+		public String describe() {
+			return "light at " + place.describe();
+		}
+	}
+
+	/**
+	 * 村人と取引する。
+	 *
+	 * @param item  sell なら売るもの、そうでなければ買うもの。null なら、近くの村人の取引の一覧を言うだけ
+	 * @param count 取引する回数
+	 */
+	record Trade(String item, boolean sell, int count) implements Command {
+		public String describe() {
+			return item == null ? "trades" : (sell ? "sell " : "buy ") + item + " " + count;
+		}
+	}
+
 	/** 近くに落ちているアイテムを拾う。 */
 	record Pickup() implements Command {
 		public String describe() {

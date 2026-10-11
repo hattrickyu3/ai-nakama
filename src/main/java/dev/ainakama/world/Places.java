@@ -63,6 +63,7 @@ public final class Places {
 			case Command.PlaceBlock p when isRelative(p.place()) -> new Command.PlaceBlock(p.item(), fixed(p.place(), nakama, level));
 			case Command.MoveTo m when m.place() instanceof Place.Looking -> new Command.MoveTo(fixed(m.place(), nakama, level));
 			case Command.Till t when isRelative(t.place()) -> new Command.Till(fixed(t.place(), nakama, level), t.count());
+			case Command.Light l when isRelative(l.place()) -> new Command.Light(fixed(l.place(), nakama, level));
 			default -> command;
 		};
 	}

@@ -2,6 +2,7 @@ package dev.ainakama.task;
 
 import dev.ainakama.core.Command;
 import dev.ainakama.core.Items;
+import dev.ainakama.core.Obtaining;
 import dev.ainakama.core.PlanParser;
 import dev.ainakama.core.Smelting;
 import dev.ainakama.entity.NakamaEntity;
@@ -14,7 +15,7 @@ import net.minecraft.server.level.ServerLevel;
 
 /**
  * 足りない材料を、どうやって手に入れるかを決める。
- * 近くのチェストに入っていればそこから出し、なければ集め、集められないものは焼いて作る。
+ * 近くのチェストに入っていればそこから出し、なければ集め（掘る・狩る・しぼる・釣る）、集められないものは焼いて作る。
  */
 final class Supplies {
 	/**
@@ -52,6 +53,14 @@ final class Supplies {
 		var collectable = Items.collectableFor(key);
 		if (collectable.isPresent()) {
 			return Optional.of(new Command.Collect(collectable.get(), count));
+		}
+		// 革・羊毛・牛乳・魚のように、動物や水辺から取ってくるもの
+		Optional<Command> gathered = Items.options(key).stream()
+			.map(id -> Obtaining.gather(id, count))
+			.flatMap(Optional::stream)
+			.findFirst();
+		if (gathered.isPresent()) {
+			return gathered;
 		}
 		return Items.options(key).stream()
 			.filter(Smelting::canMake)

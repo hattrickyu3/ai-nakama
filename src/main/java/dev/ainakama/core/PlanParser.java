@@ -159,6 +159,53 @@ public final class PlanParser {
 				return Optional.of(new Command.Guard());
 			case "pickup":
 				return Optional.of(new Command.Pickup());
+			case "light": {
+				Optional<Place> place = Place.parse(stringOr(o, "at", "here"));
+				if (place.isEmpty()) {
+					errors.add(where + ": at が読めない");
+					return Optional.empty();
+				}
+				return Optional.of(new Command.Light(place.get()));
+			}
+			case "trades":
+				return Optional.of(new Command.Trade(null, false, 1));
+			case "buy":
+			case "sell": {
+				Optional<String> item = Items.resolve(stringOr(o, "item", ""), itemExists);
+				if (item.isEmpty()) {
+					errors.add(where + ": 知らないアイテム「" + stringOr(o, "item", "") + "」");
+					return Optional.empty();
+				}
+				return Optional.of(new Command.Trade(item.get(), name.equals("sell"), clampCount(o, where, errors, 1)));
+			}
+			case "shear":
+				return Optional.of(new Command.Shear(clampCount(o, where, errors, Command.Shear.DEFAULT_COUNT)));
+			case "milk":
+				return Optional.of(new Command.Milk(clampCount(o, where, errors, 1)));
+			case "fish":
+				return Optional.of(new Command.Fish(clampCount(o, where, errors, Command.Fish.DEFAULT_COUNT)));
+			case "breed": {
+				String raw = stringOr(o, "item", stringOr(o, "name", ""));
+				Optional<Hunting.Prey> prey = Hunting.resolve(raw, itemExists).filter(p -> p.item() == null && !Hunting.ANY.equals(p.animal()));
+				if (prey.isEmpty()) {
+					errors.add(where + ": 「" + raw + "」は増やせない（増やせるのは cow, pig, sheep, chicken, rabbit）");
+					return Optional.empty();
+				}
+				return Optional.of(new Command.Breed(prey.get().animal(), clampCount(o, where, errors, 1)));
+			}
+			case "get":
+			case "obtain": {
+				Optional<String> item = Items.resolve(stringOr(o, "item", ""), itemExists);
+				if (item.isEmpty()) {
+					errors.add(where + ": 知らないアイテム「" + stringOr(o, "item", "") + "」");
+					return Optional.empty();
+				}
+				if (!Obtaining.canObtain(item.get())) {
+					errors.add(where + ": " + item.get() + " の手に入れ方がわからない");
+					return Optional.empty();
+				}
+				return Optional.of(new Command.Obtain(item.get(), clampCount(o, where, errors, 1)));
+			}
 			case "till": {
 				Optional<Place> place = Place.parse(stringOr(o, "at", "here"));
 				if (place.isEmpty()) {
@@ -232,6 +279,12 @@ public final class PlanParser {
 				if (prey.isPresent()) {
 					// 肉・革・羊毛などは掘るものではなく、動物を狩って手に入れる
 					return Optional.of(new Command.Hunt(prey.get().animal(), prey.get().item(), count));
+				}
+				boolean direct = name.equals("collect") ? Items.isCollectable(item.get())
+					: Recipes.canCraft(item.get()) || Smelting.isProduct(item.get());
+				if (!direct && Obtaining.canObtain(item.get())) {
+					// 集め方・作り方を取り違えていても、手に入れ方がわかるものなら任せる（松明を collect、牛乳を craft など）
+					return Optional.of(new Command.Obtain(item.get(), count));
 				}
 				if (name.equals("collect") && !Items.isCollectable(item.get())) {
 					errors.add(where + ": " + item.get() + " は集められない（集められるのは原木・丸石・石炭・鉄の原石・土・砂・砂利・粘土。作るものは craft）");

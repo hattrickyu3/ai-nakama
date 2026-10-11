@@ -16,8 +16,9 @@ public final class TaskRunner {
 	/**
 	 * 差し込みの深さの上限。何も持たずに鉄の道具を頼まれたときがいちばん深く、
 	 * 鉄の道具 ← 焼く ← かまどを置く ← かまどを作る ← 丸石 ← 木のツルハシ ← 原木、で6段。
+	 * 「〇〇を用意して」（ObtainTask）から始まると、その分で1段増える。
 	 */
-	public static final int MAX_DEPTH = 6;
+	public static final int MAX_DEPTH = 7;
 
 	/**
 	 * 同じ命令を「先にやること」のあとでやり直す回数の上限。材料集めが空回りし続けないようにする。

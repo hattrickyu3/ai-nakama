@@ -87,10 +87,44 @@ public final class QuickCommands {
 	private static final Pattern PICKUP = Pattern.compile("^(落ちて(い)?る|落とした|落ちた|そこの|その|近くの|まわりの|周りの|地面の)*(もの|物|アイテム|やつ|ドロップ)?を?(全部|ぜんぶ)?"
 		+ "(拾ってきて|拾っておいて|拾って|ひろって|回収してきて|回収して)" + END);
 
+	private static final Pattern SHEAR = Pattern.compile("^(羊の?)?(毛|羊毛|ウール)を" + NUM + HEAD_UNIT + "(刈ってきて|刈って|刈り取って)" + END);
+	private static final Pattern MILK = Pattern.compile("^(牛の?)?(乳しぼり|乳搾り|ちちしぼり)(を)?(してきて|して)" + END);
+	private static final Pattern MILK2 = Pattern.compile("^(牛乳|ミルク)を" + NUM + "(?:杯|個|つ|本)?(?:くらい|ぐらい|ほど|分)?(しぼってきて|しぼって|搾ってきて|搾って|取ってきて|とってきて|もらってきて)" + END);
+	/** 「牛を増やして」「ニワトリを2組繁殖させて」。 */
+	private static final Pattern BREED = Pattern.compile("^(.+?)を(?:もっと|たくさん|少し)?" + NUM + "(?:頭|匹|羽|組|ペア)?(?:くらい|ぐらい|ほど|分)?(増やして|ふやして|繁殖させて|繁殖して)(おいて)?" + END);
+	private static final Pattern FEED = Pattern.compile("^(.+?)に(エサ|えさ|餌)を(あげて|やって|与えて)" + END);
+	/** 「石のツルハシがほしいな」「松明を8個用意して」。手に入れ方はプログラムが選ぶ。 */
+	private static final Pattern OBTAIN = Pattern.compile("^(.+?)(?:を|が)" + NUM + UNIT
+		+ "(手に入れてきて|手に入れて(?:おいて)?|用意して(?:おいて)?|調達してきて|調達して|ゲットして|準備して(?:おいて)?|(?:ほしい|欲しい)(?:な|んだ|です)?|必要(?:だ|なんだ|です)?)(?:ね|よ)?[!！。]*$");
+	/** 「ケーキを作りたいから、牛乳を用意して」の「〜から、」のような、頼みの前に付いた理由。「〜てから」は順番なので外さない。 */
+	private static final Pattern REASON = Pattern.compile("^.{2,40}?(?<![てで])(?:から|ので)[、,]\\s*(.+)$");
+
+	/** 「ここを明るくして」「拠点を明るくして」「湧き潰しして」。 */
+	private static final Pattern LIGHT = Pattern.compile("^" + WHERE + "(?:(?:まわり|周り|あたり|辺り)を)?(明るくして|照らして|湧き潰しして|湧きつぶしして|わきつぶしして)" + END);
+	/** 「この辺に松明を置いて回って」。1本だけ置く「ここに松明を置いて」は PLACE が受ける。 */
+	private static final Pattern LIGHT2 = Pattern.compile("^" + WHERE + "(松明|たいまつ)を(たくさん|いっぱい)?(置いて回って|置いてまわって|並べて|設置して回って|立てて回って)" + END);
+	/** 「釣りをして」「魚を5匹釣ってきて」。 */
+	private static final Pattern FISHING = Pattern.compile("^(釣り|つり|魚釣り)(を)?(してきて|して)" + END);
+	private static final Pattern FISHING2 = Pattern.compile("^(魚|さかな)を" + NUM + "(?:匹|尾|個|つ)?(?:くらい|ぐらい|ほど|分)?(釣ってきて|釣って|つってきて|つって)" + END);
+	private static final String TIMES = NUM + "(?:回|個|つ|枚|本)?(?:くらい|ぐらい|ほど|分)?";
+	private static final Pattern SELL = Pattern.compile("^(?:村人に)?(.+?)を" + TIMES + "(?:村人に)?(売ってきて|売って)" + END);
+	private static final Pattern BUY = Pattern.compile("^(?:村人から|村人と)?(.+?)を" + TIMES + "(?:村人から|村人と)?(買ってきて|買って|交換してきて|交換して)" + END);
+	private static final Pattern SHOW_TRADES = Pattern.compile("^(村人の?|近くの村人の?)?(取引|交易|売り物|売っているもの)(の内容|内容)?を?(見せて|教えて|確認して|見てきて)" + END);
+
 	private QuickCommands() {
 	}
 
 	public static Optional<Match> match(String text, Predicate<String> itemExists) {
+		Optional<Match> direct = matchWhole(text, itemExists);
+		if (direct.isPresent()) {
+			return direct;
+		}
+		// 理由が前に付いているだけなら、理由を外した残りを読む
+		Matcher reason = REASON.matcher(text.trim());
+		return reason.matches() ? matchWhole(reason.group(1), itemExists) : Optional.empty();
+	}
+
+	private static Optional<Match> matchWhole(String text, Predicate<String> itemExists) {
 		String s = normalize(text);
 		if (FOLLOW.matcher(s).matches()) {
 			return plan("ついていくね！", new Command.Follow());
@@ -135,6 +169,53 @@ public final class QuickCommands {
 		}
 		if (GUARD.matcher(s).matches()) {
 			return plan("まかせて、そばで守るね！", new Command.Guard());
+		}
+		for (Pattern p : List.of(LIGHT, LIGHT2)) {
+			Matcher light = p.matcher(s);
+			if (light.matches()) {
+				return plan("松明を置いて、明るくするね！", new Command.Light(placeOf(light.group(1))));
+			}
+		}
+		if (SHOW_TRADES.matcher(s).matches()) {
+			return plan("村人に聞いてくるね。", new Command.Trade(null, false, 1));
+		}
+		for (Pattern p : List.of(SELL, BUY)) {
+			Matcher trade = p.matcher(s);
+			if (trade.matches()) {
+				var item = Items.resolve(trade.group(1), itemExists);
+				if (item.isPresent()) {
+					int times = Quantity.parse(trade.group(2)).map(QuickCommands::clamp).orElse(1);
+					return plan("村人と取引してくるね！", new Command.Trade(item.get(), p == SELL, times));
+				}
+			}
+		}
+		if (FISHING.matcher(s).matches()) {
+			return plan("釣りをしてくるね！", new Command.Fish(Command.Fish.DEFAULT_COUNT));
+		}
+		Matcher fishing = FISHING2.matcher(s);
+		if (fishing.matches()) {
+			return plan("釣りをしてくるね！", new Command.Fish(Quantity.parse(fishing.group(2)).map(QuickCommands::clamp).orElse(Command.Fish.DEFAULT_COUNT)));
+		}
+		Matcher care = SHEAR.matcher(s);
+		if (care.matches()) {
+			return plan("毛を刈ってくるね！", new Command.Shear(Quantity.parse(care.group(3)).map(QuickCommands::clamp).orElse(Command.Shear.DEFAULT_COUNT)));
+		}
+		if (MILK.matcher(s).matches()) {
+			return plan("乳しぼりしてくるね！", new Command.Milk(1));
+		}
+		care = MILK2.matcher(s);
+		if (care.matches()) {
+			return plan("乳しぼりしてくるね！", new Command.Milk(Quantity.parse(care.group(2)).map(QuickCommands::clamp).orElse(1)));
+		}
+		for (Pattern p : List.of(BREED, FEED)) {
+			care = p.matcher(s);
+			if (care.matches()) {
+				var prey = Hunting.resolve(care.group(1), itemExists).filter(a -> a.item() == null && !Hunting.ANY.equals(a.animal()));
+				if (prey.isPresent()) {
+					int pairs = p == BREED ? Quantity.parse(care.group(2)).map(QuickCommands::clamp).orElse(1) : 1;
+					return plan("エサをあげてくるね！", new Command.Breed(prey.get().animal(), pairs));
+				}
+			}
 		}
 		if (PICKUP.matcher(s).matches()) {
 			return plan("拾ってくるね！", new Command.Pickup());
@@ -213,6 +294,13 @@ public final class QuickCommands {
 			if (item.isPresent() && Smelting.isProduct(item.get())) {
 				// ガラスや木炭のように、クラフトではなく焼いて作るもの
 				return plan("かまどで焼いて作るね！", new Command.Smelt(item.get(), n));
+			}
+		}
+		m = OBTAIN.matcher(s);
+		if (m.matches()) {
+			var item = Items.resolve(m.group(1), itemExists);
+			if (item.isPresent() && Obtaining.canObtain(item.get())) {
+				return plan("用意するね！", new Command.Obtain(item.get(), clamp(Quantity.parse(m.group(2)).orElse(1))));
 			}
 		}
 		if (HOME_WORD.matcher(s).find() && WHERE_WORD.matcher(s).find()) {
