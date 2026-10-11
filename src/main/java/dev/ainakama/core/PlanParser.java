@@ -157,6 +157,17 @@ public final class PlanParser {
 				return Optional.of(new Command.Fight());
 			case "guard":
 				return Optional.of(new Command.Guard());
+			case "pickup":
+				return Optional.of(new Command.Pickup());
+			case "hunt": {
+				String raw = stringOr(o, "item", stringOr(o, "name", ""));
+				Optional<Hunting.Prey> prey = Hunting.resolve(raw, itemExists);
+				if (prey.isEmpty()) {
+					errors.add(where + ": 「" + raw + "」は狩れない（狩れるのは cow, pig, sheep, chicken, rabbit。モンスターは fight）");
+					return Optional.empty();
+				}
+				return Optional.of(new Command.Hunt(prey.get().animal(), prey.get().item(), clampCount(o, where, errors, Hunting.DEFAULT_COUNT)));
+			}
 			case "take":
 			case "smelt": {
 				Optional<String> item = Items.resolve(stringOr(o, "item", ""), itemExists);
@@ -208,6 +219,11 @@ public final class PlanParser {
 					return Optional.empty();
 				}
 				int count = clampCount(o, where, errors, 1);
+				Optional<Hunting.Prey> prey = name.equals("collect") ? Hunting.forDrop(item.get()) : Optional.empty();
+				if (prey.isPresent()) {
+					// 肉・革・羊毛などは掘るものではなく、動物を狩って手に入れる
+					return Optional.of(new Command.Hunt(prey.get().animal(), prey.get().item(), count));
+				}
 				if (name.equals("collect") && !Items.isCollectable(item.get())) {
 					errors.add(where + ": " + item.get() + " は集められない（集められるのは原木・丸石・石炭・鉄の原石・土・砂・砂利・粘土。作るものは craft）");
 					return Optional.empty();

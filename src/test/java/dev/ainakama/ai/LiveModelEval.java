@@ -25,7 +25,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 class LiveModelEval {
 	private static final Set<String> ITEMS = Set.of("oak_log", "oak_planks", "stick", "crafting_table", "chest", "cobblestone",
 		"coal", "torch", "wooden_pickaxe", "stone_pickaxe", "furnace", "dirt", "sand", "wheat", "bread", "oak_fence", "oak_door", "raw_iron", "iron_ingot", "white_wool",
-		"glass", "charcoal", "stone", "wheat_seeds", "beef", "cooked_beef");
+		"glass", "charcoal", "stone", "wheat_seeds", "beef", "cooked_beef", "porkchop", "mutton", "chicken", "leather", "feather");
 
 	private static final List<String> REQUESTS = List.of(
 		"石のツルハシがほしいな",
@@ -45,7 +45,10 @@ class LiveModelEval {
 		"鉄のインゴットが3つ必要なんだ",
 		"畑の小麦が育ったみたいだから、お願いできる？",
 		"ゾンビが来た！助けて！",
-		"これから洞窟に行くから、そばで守っていてね");
+		"これから洞窟に行くから、そばで守っていてね",
+		"お腹がすいたな。何か肉を取ってきてくれない？",
+		"本を作りたいから、革が3枚ほしいんだ",
+		"さっき倒したゾンビが何か落としたみたい。拾っておいて");
 
 	/** 作業中（木を集めている途中）に話しかけられたときの頼み。2026-10-10 に実際に遊んだときの言い方を含む。 */
 	private static final List<String> REQUESTS_WHILE_WORKING = List.of(

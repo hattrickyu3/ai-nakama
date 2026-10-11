@@ -107,6 +107,26 @@ public sealed interface Command {
 		}
 	}
 
+	/**
+	 * 動物を狩って、落としたものを拾う。
+	 *
+	 * @param animal 動物のID（cow など）か {@link Hunting#ANY}
+	 * @param item   ほしいもの（beef, leather など。{@link Hunting#MEAT} はどの肉でも）。null なら count は動物の数
+	 * @param count  item があればその個数、なければ動物の数
+	 */
+	record Hunt(String animal, String item, int count) implements Command {
+		public String describe() {
+			return "hunt " + (item == null ? animal : item) + " " + count;
+		}
+	}
+
+	/** 近くに落ちているアイテムを拾う。 */
+	record Pickup() implements Command {
+		public String describe() {
+			return "pickup";
+		}
+	}
+
 	record Say(String text) implements Command {
 		public String describe() {
 			return "say " + text;

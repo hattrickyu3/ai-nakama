@@ -60,6 +60,11 @@ public final class Items {
 		alias("cooked_beef", "ステーキ");
 		alias("porkchop", "生の豚肉", "豚肉");
 		alias("chicken", "生の鶏肉", "鶏肉");
+		alias("mutton", "生の羊肉", "羊肉", "マトン");
+		alias("rabbit", "生の兎肉", "ウサギ肉", "うさぎ肉");
+		alias("leather", "革", "皮", "レザー");
+		alias("white_wool", "羊毛", "ウール", "wool");
+		alias("feather", "羽", "羽根");
 		alias("bread", "パン");
 		alias("oak_fence", "柵", "フェンス", "fence");
 		alias("oak_door", "ドア", "扉", "door");
@@ -94,6 +99,14 @@ public final class Items {
 		japanese("wheat", "小麦");
 		japanese("bread", "パン");
 		japanese("oak_fence", "オークの柵");
+		japanese("beef", "生の牛肉");
+		japanese("porkchop", "生の豚肉");
+		japanese("mutton", "生の羊肉");
+		japanese("chicken", "生の鶏肉");
+		japanese("rabbit", "生の兎肉");
+		japanese("leather", "革");
+		japanese("white_wool", "白色の羊毛");
+		japanese("feather", "羽");
 	}
 
 	private Items() {

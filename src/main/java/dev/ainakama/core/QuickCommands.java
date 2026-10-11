@@ -72,6 +72,14 @@ public final class QuickCommands {
 	 */
 	private static final Pattern GUARD = Pattern.compile("^(.{1,30}?(?<![てで])(から|ので))?(そばで|近くで|ずっと|しっかり)*((私|僕|俺|わたし|ぼく|おれ)を)?(守って|まもって|護衛(を)?して)(いて|おいて|て)?" + END);
 
+	private static final String HEAD_UNIT = "(?:頭|匹|羽|体|個|つ|枚)?(?:くらい|ぐらい|ほど|分)?";
+	/** 「牛を3頭狩って」。相手が動物（か、動物の落とすもの）のときだけ受ける。モンスターは FIGHT が先に受ける。 */
+	private static final Pattern HUNT = Pattern.compile("^(.+?)を" + NUM + HEAD_UNIT + "(狩ってきて|狩って|倒してきて|倒して|たおして|仕留めて|しとめて)" + END);
+	/** 「牛肉を5個取ってきて」「肉を集めて」。動物の落とすもののときだけ受ける。 */
+	private static final Pattern HUNT_ITEM = Pattern.compile("^(.+?)を" + NUM + HEAD_UNIT + "(集めてきて|集めて|あつめて|取ってきて|とってきて|持ってきて|手に入れて|用意して)" + END);
+	private static final Pattern PICKUP = Pattern.compile("^(落ちて(い)?る|落とした|落ちた|そこの|その|近くの|まわりの|周りの|地面の)*(もの|物|アイテム|やつ|ドロップ)?を?(全部|ぜんぶ)?"
+		+ "(拾ってきて|拾っておいて|拾って|ひろって|回収してきて|回収して)" + END);
+
 	private QuickCommands() {
 	}
 
@@ -112,6 +120,23 @@ public final class QuickCommands {
 		}
 		if (GUARD.matcher(s).matches()) {
 			return plan("まかせて、そばで守るね！", new Command.Guard());
+		}
+		if (PICKUP.matcher(s).matches()) {
+			return plan("拾ってくるね！", new Command.Pickup());
+		}
+		Matcher hm = HUNT.matcher(s);
+		if (hm.matches()) {
+			var prey = Hunting.resolve(hm.group(1), itemExists);
+			if (prey.isPresent()) {
+				return plan("狩りに行ってくるね！", hunt(prey.get(), hm.group(2)));
+			}
+		}
+		hm = HUNT_ITEM.matcher(s);
+		if (hm.matches()) {
+			var prey = Hunting.resolve(hm.group(1), itemExists).filter(p -> p.item() != null);
+			if (prey.isPresent()) {
+				return plan("狩りに行ってくるね！", hunt(prey.get(), hm.group(2)));
+			}
 		}
 		for (Pattern p : List.of(TAKE, TAKE2)) {
 			Matcher tm = p.matcher(s);
@@ -193,6 +218,11 @@ public final class QuickCommands {
 
 	private static Optional<Match> plan(String say, Command c) {
 		return Optional.of(Match.plan(new Plan(say, List.of(c), null)));
+	}
+
+	private static Command hunt(Hunting.Prey prey, String quantity) {
+		int n = Quantity.parse(quantity).map(QuickCommands::clamp).orElse(Hunting.DEFAULT_COUNT);
+		return new Command.Hunt(prey.animal(), prey.item(), n);
 	}
 
 	/** 数の指定があればその数、なければ 0（あるだけ全部）。 */

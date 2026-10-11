@@ -12,7 +12,7 @@ import java.util.stream.Collectors;
 public final class PromptBuilder {
 	private static final String STEP_SCHEMA = """
 		{"type":"object","properties":{
-		  "do":{"type":"string","enum":["follow","stop","move_to","collect","craft","smelt","build","place","give","store","take","farm","fight","guard","skill","say","remember"]},
+		  "do":{"type":"string","enum":["follow","stop","move_to","collect","craft","smelt","build","place","give","store","take","farm","fight","guard","hunt","pickup","skill","say","remember"]},
 		  "item":{"type":"string"},"count":{"type":"integer"},"blueprint":{"type":"string"},
 		  "at":{"type":"string"},"text":{"type":"string"},"name":{"type":"string"}},"required":["do"]}
 		""";
@@ -57,7 +57,9 @@ public final class PromptBuilder {
 			- give(item, count): プレイヤーに渡す。item を省くと道具以外を全部渡す
 			- store: 持ち物を近くのチェストにしまう / take(item, count): 近くのチェストから取り出す
 			- farm: 畑の世話（育った作物を収穫して植え直す）
-			- fight: 近くのモンスターを倒す（羊や牛などの動物は倒せない）
+			- fight: 近くのモンスターを倒す（動物は hunt）
+			- hunt(item, count): 動物を狩って、落としたものを拾う。item は動物（cow, pig, sheep, chicken, rabbit）か、ほしいもの（beef, porkchop, mutton, chicken, leather, feather, white_wool）
+			- pickup: 近くに落ちているアイテムを拾う
 			- skill(name): 覚えた技を使う
 			- say(text): 話す / remember(text): 覚えておく
 			場所(at): home=拠点, player=プレイヤーの足元, here=プレイヤーが見ているところ, self=自分のいる場所, "x y z"=座標
@@ -68,7 +70,7 @@ public final class PromptBuilder {
 			- 雑談や質問には say だけで答える（plan は空）。座標などは状況に書いてあることを答える。
 			- 集める・作る・建てる・置く・渡すことを頼まれたら、必ず plan に命令を書く（「〇〇がほしい」は craft、「取ってきて」は collect）。頼まれたことは最後の手順まで全部書く。
 			- 石・石炭・鉄は、近くの資源に書いていなくても collect で掘り下げて探せる（鉄は raw_iron。鉄インゴットは smelt）。
-			- 命令がないのでできないのは、動物を倒す・畑を新しく作る・取引だけ。それを頼まれたときは plan を空にして、できないと正直に言う。
+			- 命令がないのでできないのは、畑を新しく作る・取引・釣りだけ。それを頼まれたときは plan を空にして、できないと正直に言う。
 			- 何をすればいいのかはっきりしない頼み（「キャンプの準備をして」「冬支度して」など）は、勝手に決めずに、plan を空にして ask に質問を書く。
 			  例: {"say": "キャンプの準備？", "plan": [], "ask": "「キャンプの準備」って、何をすればいいの？"}
 			- 覚えておくべき事実（好み・場所・コツ）があれば memo に書く。

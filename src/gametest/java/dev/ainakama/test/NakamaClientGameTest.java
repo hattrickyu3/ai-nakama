@@ -114,6 +114,21 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 			check("収穫したあとに植え直し、空いていた畑にも植えた（6マス全部に小麦）", crops[0] == 6);
 			check("育ちきった小麦は残っていない", crops[1] == 0);
 
+			// 動物を狩る：牛が4頭。また増やせるよう2頭は残す決まりなので、3頭頼んでも2頭までしか狩らない
+			for (int i = 0; i < 4; i++) {
+				server.runCommand("summon minecraft:cow " + (base.getX() + 6 + i) + " " + base.getY() + " " + (base.getZ() + 9));
+			}
+			context.waitTicks(10);
+			check("テスト用の牛が4頭いる", server.computeOnServer(s -> animals(nakama(s), "cow")) == 4);
+			say("牛を狩って、落とした肉を拾う（2頭は残す）", "牛を3頭狩って",
+				n -> n.isIdle() && animals(n, "cow") == 2 && Inv.count(n.getInventory(), "beef") >= 2, LONG);
+			// 落ちているものを拾う
+			BlockPos dropPos = base.offset(2, 0, 2);
+			server.runOnServer(s -> s.overworld().addFreshEntity(new net.minecraft.world.entity.item.ItemEntity(s.overworld(),
+				dropPos.getX() + 0.5, dropPos.getY() + 0.5, dropPos.getZ() + 0.5,
+				new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.FEATHER, 3))));
+			say("落ちているものを拾う", "落ちてるものを拾って", n -> n.isIdle() && Inv.count(n.getInventory(), "feather") >= 3, LONG);
+
 			// ミナが倒す前にプレイヤーが倒されると、テストごとゲームが終わってしまうので、ダメージを受けないようにする
 			server.runCommand("effect give @p minecraft:resistance infinite 4 true");
 			server.runCommand("difficulty easy");
@@ -128,7 +143,7 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 			chat("ミナ、守って");
 			server.waitFor(s -> nakama(s).currentJob().contains("守る"), 100);
 			LOG.info("[ainakama-test] OK: 「守って」が通じた");
-			check("新しい4つの動きで、AIを1回も呼んでいない", aiCalls() == callsBeforeNew);
+			check("取り出す・焼く・畑・狩る・拾う・戦う・守るで、AIを1回も呼んでいない", aiCalls() == callsBeforeNew);
 
 			// 建物を見せて覚える
 			BlockPos demo = base.offset(3, 0, 3);
@@ -305,6 +320,12 @@ public class NakamaClientGameTest implements FabricClientGameTest {
 			}
 		}
 		return count;
+	}
+
+	/** 仲間のまわりにいる、その種類の動物の数。 */
+	private static int animals(NakamaEntity n, String id) {
+		return n.level().getEntitiesOfClass(net.minecraft.world.entity.animal.Animal.class, n.getBoundingBox().inflate(64),
+			a -> a.isAlive() && net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(a.getType()).getPath().equals(id)).size();
 	}
 
 	private static UUID spawnHusk(MinecraftServer server, BlockPos pos) {

@@ -45,6 +45,8 @@ public final class Tasks {
 			case Command.Farm f -> new FarmTask();
 			case Command.Fight f -> new FightTask(false);
 			case Command.Guard g -> new FightTask(true);
+			case Command.Hunt h -> new HuntTask(h.animal(), h.item(), h.count());
+			case Command.Pickup p -> new PickupTask();
 		};
 	}
 

@@ -21,7 +21,8 @@
 - ゲーム内テストのプレイヤーには耐性の効果を付けている。付けないと、ミナがハスクを倒す前にプレイヤーが倒されて、ゲームごと終わることがあった
 - まだ直していない：途中の命令が失敗すると、残りの予定も全部やめる（TaskRunner.fail）。「木と石を集めて」で木が見つからないと、石も集めない
 - 言葉を受け取る順：教える言い方（TeachParser）→ 決まった言い方（QuickCommands）→ 覚えた技（SkillBook）→ いくつか続けた指示 → AI
-- 命令: follow / stop / move_to / collect / craft / smelt / build / place / give / store / take / farm / fight / guard / skill / say / remember
+- 命令: follow / stop / move_to / collect / craft / smelt / build / place / give / store / take / farm / fight / guard / hunt / pickup / skill / say / remember
+- 狩り（HuntTask）の決まりは core の Hunting にある。AIが肉や革に collect を使ったら、PlanParser が hunt に読み替える。たたく動き（Melee）と拾う動き（Looter）は、戦う・狩る・拾うで共通
 - 実行中に材料・道具が足りなければ、タスクが「先にやること」を返して実行側が前に差し込む（深さ6まで、同じ命令のやり直しは4回まで）
 - 足りない材料の手に入れ方は Supplies が決める：近くのチェストから出す → 集める → かまどで焼く、の順
 - やり直しでは、タスクは新しく作り直される（途中の数は消える）。途中から続けたいタスクは pinned() で「残りの数」の命令を返す（SmeltTask）
@@ -45,7 +46,7 @@
 - レシピの材料は「オークの板材」「板材ならどれでも」のようにキーが重なる。取り置きは実際のIDごとに数える（CraftPlanner.State.reserve）
 - 小さいAI（4B）は「できないこと」を強く書くと慎重になりすぎる。説明文を変えたら LiveModelEval で必ず確かめる
 - LiveModelEval は1回では判断しない。同じ頼みでも返事がばらつくので、3回動かして見比べる。「決まりどおり 18/18」は形が正しいだけなので、中身（頼まれた手順が全部あるか）は目で読む
-- fight の命令を足したら、小さいAIが「羊を倒して」にも fight を使った。説明文に「動物は倒せない」と書いて止めた
+- fight の命令を足したら、小さいAIが「羊を倒して」にも fight を使った。説明文に「動物は倒せない」と書いて止めた（hunt を足してからは「動物は hunt」と書いている）
 - 小さいAIは smelt の前に「かまどを作る・置く」を書きがち（説明しても3回に2回）。PlanParser.withoutFurnacePrep で取り除いている
 - `./gradlew build` は src/gametest をコンパイルしない。ゲーム内テストのコードを直したら `./gradlew compileGametestJava` で先に確かめる（起動してから気づくと数分むだになる）
 - 26.3 では、生き物の種類の定数は `EntityTypes`（`EntityType.HUSK` ではない）。燃料かどうかは `DataComponents.COOKING_FUEL` で見る
@@ -66,7 +67,8 @@
 
 ## 次にやること（候補）
 - 普段のランチャーで遊べるように、Fabric を入れて jar を mods に置く手順を整える
-- 畑を新しく耕す（クワ・水のそば・種）、動物を倒して肉や羊毛を取る、倒した敵の落とし物を拾う
+- 動きを増やす（Mindcraft の skills.js を一覧表にして、足りないものを足していく）。済み：拾う・狩る・倒した相手の落とし物を拾う。次：食べる・装備する → 寝る → 畑を新しく耕す → 道具を使う（ハサミ・バケツ）
+- AltoClef をまねて「〇〇を手に入れて」を作る（掘る・作る・焼く・狩る・チェストから出す、を自動で選ぶ）
 - 建物の材料（BuildTask.checkMaterials）も Supplies を通す（今はチェストを見ない・焼かない）
 - 覚えた設計図の向きを変えて建てる（今は見せたときと同じ向き）
 - 知識を仲間どうしで共有する
