@@ -2,6 +2,7 @@ package dev.ainakama.command;
 
 import dev.ainakama.core.Addressee;
 import dev.ainakama.core.Command;
+import dev.ainakama.core.Place;
 import dev.ainakama.core.Plan;
 import dev.ainakama.core.QuickCommands;
 import dev.ainakama.core.Roster;
@@ -128,11 +129,12 @@ public final class ChatRouter {
 		return found;
 	}
 
-	/** 「こっちに来て」「ついてきて」「tpして」のように、そばに来てほしいという言葉か。 */
+	/** 「こっちに来て」「ここまで来て」「ついてきて」「tpして」のように、そばに来てほしいという言葉か。 */
 	private static boolean isCall(String message) {
 		List<Command> commands = QuickCommands.match(message, Inv::itemExists)
 			.flatMap(QuickCommands.Match::plan).map(Plan::commands).orElse(List.of());
-		return commands.equals(List.of(new Command.Follow())) || CALL.matcher(message).find();
+		return commands.equals(List.of(new Command.Follow())) || commands.equals(List.of(new Command.MoveTo(new Place.NearPlayer())))
+			|| CALL.matcher(message).find();
 	}
 
 	private static String tooFar(ServerPlayer player, Roster.Entry entry) {

@@ -39,6 +39,8 @@ public final class QuickCommands {
 	private static final String UNIT = "(?:個|本|つ|コ|枚)?(?:くらい|ぐらい|ほど|分)?";
 
 	private static final Pattern FOLLOW = Pattern.compile("^(ついてきて|ついて来て|ついてこい|follow( me)?|おいで|来て|きて|こっちに?(来て|きて))" + END);
+	/** 「ここまで来て」「ここに来て」：プレイヤーのところへ来る（ついてくるのではなく、1回来るだけ）。 */
+	private static final Pattern COME = Pattern.compile("^(ここ|そこ|私のところ|僕のところ|俺のところ|わたしのところ)(まで|に|へ)?(来て|きて)" + END);
 	private static final Pattern STOP = Pattern.compile("^(止まって|とまって|ストップ|stop|待って|まって|やめて|もういいよ?)" + END);
 	private static final Pattern GO_HOME = Pattern.compile("^(もう)?(拠点に|家に|homeに)?(帰って|戻って|かえって|もどって)(いい|いて)?" + END);
 	private static final Pattern SET_HOME = Pattern.compile("^(ここを(拠点|home|家)に(して)?|ここが(拠点|home|家)(だ|です)?)" + END);
@@ -128,6 +130,9 @@ public final class QuickCommands {
 		String s = normalize(text);
 		if (FOLLOW.matcher(s).matches()) {
 			return plan("ついていくね！", new Command.Follow());
+		}
+		if (COME.matcher(s).matches()) {
+			return plan("今そっちに行くね！", new Command.MoveTo(new Place.NearPlayer()));
 		}
 		if (STOP.matcher(s).matches()) {
 			return plan("わかった、止まるね。", new Command.Stop());

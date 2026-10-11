@@ -62,6 +62,15 @@ class TillingTest {
 	}
 
 	@Test
+	void comingHereIsNotFollowing() {
+		// 2026-10-11 に、遠くにいるミナへ「ここまで来て」と言ったら、呼び寄せる言葉として通じなかった
+		assertEquals(List.of(new Command.MoveTo(new Place.NearPlayer())), quick("ここまで来て"));
+		assertEquals(List.of(new Command.MoveTo(new Place.NearPlayer())), quick("ここにきて"));
+		assertEquals(List.of(new Command.Follow()), quick("こっちに来て"));
+		assertEquals(List.of(new Command.Follow()), quick("ついてきて"));
+	}
+
+	@Test
 	void dailyRoutinesBecomeRules() {
 		// 2026-10-10 に「ここで、畑仕事を毎日朝にして」が決まりにならず、AIが「大変だね！」と返しただけだった
 		var daily = TeachParser.parse("ここで、畑仕事を毎日朝にして", KNOWN::contains).orElseThrow();
